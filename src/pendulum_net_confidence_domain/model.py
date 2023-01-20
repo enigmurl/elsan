@@ -1,4 +1,3 @@
-
 """
 ok planning
 so we have autoencoder with convex space
@@ -16,7 +15,7 @@ we also need a general loss for the translater based on how far off it's getting
 so loss = ∑(activated distance of outside points as a function of c) +
             measure of set (likely via mse for some sample of points in real world) +
             autoencoder translation loss
-measure of set... hmmmmm it could always shrink it, so it's better to do via distance in the real world?
+measure of set... hmmm it could always shrink it, so it's better to do via distance in the real world?
 """
 import torch
 import torch.nn as nn
@@ -24,15 +23,25 @@ import numpy as np
 
 from gen_data import load_data
 
-EPOCHS = 3
-CONVEX_SPACE_DIMENSION = 8  # * 2 if we count min and max
+AUTOENCODER_EPOCHS = 0
+EPOCHS = 10
 
-TRANSLATION_COEFFICIENT = 1
-MEASURE_COEFFICIENT = 1
-C_COEFFICIENT = 1
+BITMAP_SPACE_DIMENSION = 4
+CONVEX_SPACE_DIMENSION = 4  # * 2 if we count min and max
 
-C_SAMPLES = 10
-MEASURE_SAMPLES = 10
+LEARNING_RATE = 1e-3
+
+TRANSLATION_COEFFICIENT = 0
+MEASURE_COEFFICIENT = 0.02
+OFFSET_COEFFICIENT = 1
+INVERSION_COEFFICIENT = 1
+C_COEFFICIENT = 0
+
+C_BUFFER = 0.05
+MEASURE_SAMPLES = 0
+PFRAMES = 24
+
+INSTANCES_IN_BATCH = 32
 
 
 def dense(in_feature, out_features):
@@ -48,9 +57,9 @@ class ToConvex(nn.Module):
 
     def __init__(self):
         super(ToConvex, self).__init__()
-        self.dense1 = dense(2, 4)
+        self.dense1 = dense(BITMAP_SPACE_DIMENSION, 4)
         self.dense2 = dense(4, 8)
-        self.dense3 = dense(8, 8)
+        self.dense3 = dense(8, CONVEX_SPACE_DIMENSION)
 
     def forward(self, x):
         out_dense1 = self.dense1(x)
@@ -64,9 +73,9 @@ class FromConvex(nn.Module):
 
     def __init__(self):
         super(FromConvex, self).__init__()
-        self.dense1 = dense(8, 8)
+        self.dense1 = dense(CONVEX_SPACE_DIMENSION, 8)
         self.dense2 = dense(8, 4)
-        self.dense3 = nn.Linear(4, 2)
+        self.dense3 = dense(4, BITMAP_SPACE_DIMENSION)
 
     def forward(self, x):
         out_dense1 = self.dense1(x)
@@ -80,10 +89,11 @@ class Step(nn.Module):
 
     def __init__(self):
         super(Step, self).__init__()
-        self.dense1 = dense(CONVEX_SPACE_DIMENSION * 2 + 1, 16)
-        self.dense2 = dense(16, 16)
-        self.dense3 = dense(16, 16)
-        self.dense4 = dense(16, 16)
+        self.dropout = nn.Dropout()
+        self.dense1 = dense(CONVEX_SPACE_DIMENSION * 2 * PFRAMES + 1, 32)
+        self.dense2 = dense(32, 32)
+        self.dense3 = dense(32, 32)
+        self.dense4 = dense(32, 2 * CONVEX_SPACE_DIMENSION)
 
     def forward(self, x):
         out_dense1 = self.dense1(x)
@@ -117,82 +127,138 @@ def rand_directions(samples, dimension):
 
 def gen_trained_model():
     data = load_data()
-
     model = Model()
 
-    optimizer = torch.optim.Adam(model.parameters())
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     mse_loss = nn.MSELoss()
 
-    for e in range(EPOCHS):
-        for b, batch in enumerate(data):
-            loss = torch.scalar_tensor(0)
+    for e in range(EPOCHS + AUTOENCODER_EPOCHS):
 
-            # loss of making sure that each element in batch can be translated properly
-            # in tf_net final version, we can optimize the for loops into one??
-            for frame in batch:
-                convex = model.to_convex(frame)
-                bitmap = model.from_convex(convex)
+        for b in range(0, len(data), INSTANCES_IN_BATCH):
+            translation_loss = torch.scalar_tensor(0)
+            measure_loss = torch.scalar_tensor(0)
+            c_loss = torch.scalar_tensor(0)
+            offset_loss = torch.scalar_tensor(0)
+            inversion_loss = torch.scalar_tensor(0)
 
-                translation = mse_loss(bitmap, frame)
-                loss += translation * TRANSLATION_COEFFICIENT / len(batch)
+            contained_vector = {}
 
-            # in tf_net, probably want to have a less uniform batch
-            for c in torch.linspace(0, 1, C_SAMPLES):
-                convex = model.to_convex(batch[0])
-                convex = torch.concat((convex, convex))
+            extension = PFRAMES + max(1, 0 * int(e / EPOCHS * (data.shape[1] - PFRAMES)))
+            batch = data[b:min(len(data), b + INSTANCES_IN_BATCH), :extension]
 
-                contained = 0
-                distances = torch.scalar_tensor(0)
+            rand = batch  # seems like batch is better than using random?
+            convex = model.to_convex(rand)
+            bitmap = model.from_convex(convex)
 
-                for frame in batch[1:]:
-                    convex = model.step(torch.concat([convex, torch.tensor([c])]))
+            translation_loss += mse_loss(bitmap, rand) * TRANSLATION_COEFFICIENT
 
+            if e >= AUTOENCODER_EPOCHS:
+                # c = torch.rand(1)
+                c = torch.tensor([1])
+
+                convex = batch[:, :PFRAMES]  # model.to_convex(batch[:, 0])
+                frame = convex[:, 0]
+
+                contained_vector.setdefault(float(c), 0)
+
+                for i in range(PFRAMES, batch.shape[1]):
+                    flat_prev = torch.concat((convex, convex), dim=-1)
+                    flat_prev = torch.flatten(flat_prev, 1, 2)
+                    in_vec = torch.concat((flat_prev, torch.full((batch.shape[0], 1), 1)), dim=1)
+                    frame = model.step(in_vec)
+
+                    shift = convex[:, 1: PFRAMES]
+                    convex = torch.concat((shift, torch.unsqueeze(frame[:, :CONVEX_SPACE_DIMENSION], dim=1)), dim=1)
+
+                    offset_loss += mse_loss(batch[:, i], frame[:, :CONVEX_SPACE_DIMENSION])
+                    if torch.rand(1) < 0.0001:
+                        print("Break")
+                """
+                distances = torch.zeros((batch.shape[0], batch.shape[1] - 1))
+                for i in range(1, max(2, int(e * batch.shape[1] / (EPOCHS + AUTOENCODER_EPOCHS)))):
+                    convex = model.step(torch.concat([frame, frame, torch.full((batch.shape[0], 1), float(c))], dim=1))
+                    frame = batch[:, i]
                     convex_frame = model.to_convex(frame)
 
                     # entirely contained within the convex set
-                    min_dimension = convex[:CONVEX_SPACE_DIMENSION]
-                    max_dimension = convex[CONVEX_SPACE_DIMENSION:]
+                    min_dimension = convex[:, :CONVEX_SPACE_DIMENSION]
+                    width = convex[:, CONVEX_SPACE_DIMENSION:]
+                    max_dimension = min_dimension + width
+                    avg_dimension = min_dimension + width / 2
+                    offset_loss += OFFSET_COEFFICIENT * (batch.shape[1] - i) / batch.shape[1] * \
+                        mse_loss(min_dimension, frame) / (batch.shape[1] - 1)
 
-                    inside = torch.all(convex_frame >= min_dimension) and torch.all(convex_frame <= max_dimension)
+                    inversion_loss = INVERSION_COEFFICIENT * torch.sum(torch.max(torch.zeros(1), C_BUFFER - width))
+
+                    inside = torch.logical_and(torch.all(convex_frame >= min_dimension, dim=1),
+                                               torch.all(convex_frame <= max_dimension, dim=1))
 
                     # loss of size of S by taking some random sample of points
-                    samples = torch.rand((MEASURE_SAMPLES, CONVEX_SPACE_DIMENSION)) * (max_dimension - min_dimension)
+                    samples = torch.rand((MEASURE_SAMPLES, batch.shape[0], CONVEX_SPACE_DIMENSION)) * width
                     samples += min_dimension
-                    samples = list(map(lambda s: model.from_convex(s), samples))
-
+                    samples = model.from_convex(samples)  # [batch size, measure samples, bitmap space]
                     measure = 0
-                    for i, sample in enumerate(samples):
-                        for sample2 in samples[i:]:
+                    for j, sample in enumerate(samples):
+                        for sample2 in samples[j:]:
                             measure += mse_loss(sample, sample2)
-                    loss += measure * MEASURE_COEFFICIENT / (len(batch) * MEASURE_SAMPLES * (MEASURE_SAMPLES - 1) / 2)
+                    # # maybe try MEASURE_SAMPLES * (MEASURE_SAMPLES - 1)?
+                    measure_loss += measure * MEASURE_COEFFICIENT
 
-                    if inside:
-                        contained += 1
-                    else:
-                        # so for all axes that it's not currently aligned,
-                        # take the manhattan distance of whichever is closer
-                        full = torch.zeros(CONVEX_SPACE_DIMENSION)
-                        full[convex_frame < min_dimension] = (min_dimension - convex_frame)[convex_frame < min_dimension]
-                        full[convex_frame > max_dimension] = (convex_frame - max_dimension)[convex_frame > max_dimension]
-                        distances += torch.sigmoid(torch.sum(full)) / len(batch) ** 2
+                    contained_vector[float(c)] += torch.sum(inside)
 
-                # loss of making sure C is respected
-                if contained / len(batch) >= c:
-                    c_loss = 0
-                else:
-                    c_loss = distances
+                    # so for all axes that it's not currently aligned,
+                    # take the manhattan distance of whichever is closer
+                    clipped_width = torch.max(width, torch.tensor([C_BUFFER]))
+                    pivot = torch.max(convex_frame - avg_dimension, clipped_width)
+                    full = torch.log(pivot) - torch.log(clipped_width + torch.tensor([C_BUFFER]))
+                    distances[:, i - 1] = torch.mean(full, dim=1)
 
-                loss += c_loss * C_COEFFICIENT
+                # loss of making sure C is respected at every frame
+                torch.sort(distances, dim=0)
+                c_loss += torch.mean(distances[:int(torch.ceil(c * len(distances)))]) * C_COEFFICIENT
+                """
+            # have some diversity in training data
+            loss = offset_loss + inversion_loss  # + c_loss + measure_loss + translation_loss
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if b % (1 << 8) == 0:
-                print(b, "loss", loss, "last contained", contained)
+            if b % 3 == 0:
+                print("epoch", e,
+                      "batch", b,
+                      "loss", float(loss),
+                      "offset-loss", float(offset_loss),
+                      "c-loss", float(c_loss),
+                      "inversion-loss", float(inversion_loss),
+                      "trans-loss", float(translation_loss.data),
+                      "measure-loss", float(measure_loss.data),
+                      "last contained", contained_vector
+                      )
 
-    print("Finish")
+                # print(model.from_convex(model.to_convex(torch.tensor([0.1, 0.3, 0, 0]))))
+                # if e >= AUTOENCODER_EPOCHS:
+                #    print("min", min_dimension, "example", convex_frame, "max", max_dimension)
+
+    torch.save(model, "../../models/pendulum_net.pt")
+
+
+def load_cached_model():
+    return torch.load("../../models/pendulum_net.pt")
+
+
+def model_from_parameters(parameters):
+    m1 = Model()
+    for param, src in zip(m1.parameters(), parameters):
+        param.data = src.data
+
+    return m1
 
 
 if __name__ == '__main__':
     gen_trained_model()
+    # manim runs from a different path, which means that pickle acts strangely...
+    # so just save the parameters and input it ourselves
+    m = load_cached_model()
+    params = list(m.parameters())
+    torch.save(params, "../../models/pendulum_net_parameters.pt")
