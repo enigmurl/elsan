@@ -66,7 +66,7 @@ class LES(nn.Module):
         self.output_layer = nn.Conv2d(32 + input_channels, output_channels, kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
-    def forward(self, xx):
+    def forward(self, xx, error):
         xx_len = xx.shape[1]
         # u = u_mean + u_tilde + u_prime
         u_tilde = self.spatial_filter(xx.reshape(xx.shape[0] * xx.shape[1], 1, 64, 64)) \
@@ -95,7 +95,7 @@ class LES(nn.Module):
         out_deconv0 = self.deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_deconv1)
         concat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
         out = self.output_layer(concat0)
-        return out
+        return out, error
 
 
 class CLES(nn.Module):

@@ -2,12 +2,14 @@ import torch
 import numpy as np
 from torch.utils import data
 from util import get_device
+from penalty import p_full_in
 
 device = get_device()
 
 
 class Dataset(data.Dataset):
     def __init__(self, indices, input_length, mid, output_length, direc, stack_x):
+        super(Dataset, self).__init__()
         self.input_length = input_length
         self.mid = mid
         self.output_length = output_length
@@ -36,8 +38,8 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
         loss = 0
         e_loss = 0
         ims = []
-        xx = xx.to(device)
-        yy = yy.to(device)
+        xx = xx.to(device).detach()
+        yy = yy.to(device).detach()
         error = torch.zeros((xx.shape[0], 2, *xx.shape[2:])).float().to(device)
 
         for y in yy.transpose(0, 1):
@@ -70,6 +72,7 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
 def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
     valid_mse = []
     valid_emse = []
+    p = []
 
     preds = []
     trues = []
@@ -90,9 +93,11 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
 
                 e_loss += e_loss_fun(im, error, y)
 
-            ims = np.array(ims).transpose((1, 0, 2, 3, 4))
-            preds.append(ims)
-            trues.append(yy.cpu().data.numpy())
+                p.append(p_full_in(im, error, y))
+
+            # ims = np.array(ims).transpose((1, 0, 2, 3, 4))
+            # preds.append(ims)
+            # trues.append(yy.cpu().data.numpy())
 
             valid_mse.append(loss.item()/yy.shape[1])
             valid_emse.append(e_loss.item()/yy.shape[1])
@@ -102,8 +107,9 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
 
         valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
         valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
+        p = np.mean(p)
 
-    return valid_mse, valid_emse, preds, trues
+    return valid_mse, valid_emse, p, preds, trues
 
 
 def test_epoch(test_loader, model, loss_function, e_loss_fun):

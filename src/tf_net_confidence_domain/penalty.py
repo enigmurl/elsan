@@ -5,32 +5,40 @@ from util import get_device
 device = get_device()
 
 
+def p_full_in(actual_mu, actual_sigma, expected):
+    pos_dif = torch.abs(actual_mu - expected).detach()
+    real_dif = actual_sigma - pos_dif
+
+    full_in = torch.sum(real_dif > 0, dim=list(range(1, len(real_dif.shape)))) == torch.numel(real_dif[0])
+    p_in = torch.sum(full_in) / real_dif.shape[0]
+
+    return p_in.cpu().data().numpy()
+
+
 class ErrorLoss(torch.nn.Module):
-    def __init__(self, c):
+    def __init__(self, c, coef):
         super(ErrorLoss, self).__init__()
         self.c = c
+        self.coef = coef
+        self.mse = torch.nn.MSELoss()
 
     def forward(self, actual_mu, actual_sigma, expected):
-        # the error should be extended such that in c% of the cases, it will be contained
-        # but no more than that...
-        # how do we do that??
-        # well we can do it for each individual channel by saying only consider the batches which aren't super far
-        # and only have a loss on those
-        # or better, we take those that are overextending and those that are underextending and penalize up to the
-        # (1-c)% of them
+        # full penalty in bitmap space
+        # if percentage of things fully contained is less than c, penalize the ones outside (outsid channels only)
+        # percentage of things not fully contained is greater than c, penalize the ones inside (all channels)
+        pos_dif = torch.abs(actual_mu - expected).detach()
+        real_dif = actual_sigma - pos_dif
 
-        pos_dif = torch.abs(actual_mu - expected)
-        real_dif = torch.abs(actual_sigma) - pos_dif
-
-        p_in = torch.sum(real_dif > 0) / torch.numel(real_dif)
+        full_in = torch.sum(real_dif > 0, dim=list(range(1, len(real_dif.shape)))) == torch.numel(real_dif[0])
+        p_in = torch.sum(full_in) / real_dif.shape[0]
 
         loss = 0
         if p_in > self.c:
-            loss = torch.mean(torch.square(real_dif[real_dif > 0]))  # reduce it
+            loss = torch.mean(torch.square(real_dif[full_in]))  # reduce on all channels of nodes entirely in
         elif p_in < self.c:
-            loss = torch.mean(torch.square(real_dif[real_dif <= 0]))  # increase it
+            loss = torch.mean(torch.square(torch.relu(-real_dif)))  # increase on all channels outside
 
-        return loss
+        return loss * self.coef
 
 
 class MagnitudeLoss(torch.nn.Module):
