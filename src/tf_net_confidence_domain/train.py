@@ -34,6 +34,8 @@ class Dataset(data.Dataset):
 def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef=0, regularizer=None):
     train_mse = []
     train_emse = []
+    p = []
+
     for xx, yy in train_loader:
         loss = 0
         e_loss = 0
@@ -52,8 +54,9 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
                 loss += loss_function(im, y)
 
             e_loss += e_loss_fun(im, error, y)
+            p.append(p_full_in(im, error, y))
 
-            ims.append(im.cpu().data.numpy())
+            # ims.append(im.cpu().data.numpy())
 
         full_loss = loss + e_loss
 
@@ -65,8 +68,9 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
         optimizer.step()
 
     train_mse, e_loss = round(np.sqrt(np.mean(train_mse)), 5), round(np.sqrt(np.mean(train_emse)), 5)
+    p = np.mean(p, axis=0)
 
-    return train_mse, e_loss
+    return train_mse, e_loss, p
 
 
 def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
@@ -85,6 +89,7 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
             error = torch.zeros((xx.shape[0], 2, *xx.shape[2:])).float().to(device)
             ims = []
 
+            print("Batch")
             for y in yy.transpose(0, 1):
                 im, error = model(xx, error)
                 xx = torch.cat([xx[:, 2:], im], 1)
@@ -102,12 +107,12 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
             valid_mse.append(loss.item()/yy.shape[1])
             valid_emse.append(e_loss.item()/yy.shape[1])
 
-        preds = np.concatenate(preds, axis=0)
-        trues = np.concatenate(trues, axis=0)
+        # preds = np.concatenate(preds, axis=0)
+        # trues = np.concatenate(trues, axis=0)
 
         valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
         valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
-        p = np.mean(p)
+        p = np.mean(p, axis=0)
 
     return valid_mse, valid_emse, p, preds, trues
 

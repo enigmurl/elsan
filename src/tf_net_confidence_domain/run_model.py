@@ -33,8 +33,8 @@ if __name__ == '__main__':
     valid_indices = list(range(6000, 7700))
     test_indices = list(range(7700, 9800))
 
-    model = LES(input_channels=input_length * 2, output_channels=2, kernel_size=kernel_size,
-                dropout_rate=dropout_rate, time_range=time_range).to(device)
+    model = CLES(input_channels=input_length * 2, output_channels=2, kernel_size=kernel_size,
+                 dropout_rate=dropout_rate, time_range=time_range).to(device)
     model = nn.DataParallel(model)
 
     train_set = Dataset(train_indices, input_length + time_range - 1, 40, output_length, train_direc, True)
@@ -52,6 +52,7 @@ if __name__ == '__main__':
 
     train_mse = []
     train_emse = []
+    train_p = []
     valid_mse = []
     valid_emse = []
     valid_p = []
@@ -65,20 +66,21 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        mse, emse = train_epoch(train_loader, model, optimizer, loss_fun, error_fun, coef, regularizer)
+        mse, emse, p = train_epoch(train_loader, model, optimizer, loss_fun, error_fun, coef, regularizer)
         train_mse.append(mse)
         train_emse.append(emse)
+        train_p.append(p)
 
         model.eval()
-        mse, emse, p, preds, trues = eval_epoch(valid_loader, model, loss_fun, error_fun)
+        mse, emse, p_valid, preds, trues = eval_epoch(valid_loader, model, loss_fun, error_fun)
         valid_mse.append(mse)
         valid_emse.append(emse)
-        valid_p.append(p)
+        valid_p.append(p_valid)
 
         if valid_mse[-1] + valid_emse[-1] < min_mse:
             min_mse = valid_mse[-1] + valid_emse[-1]
             best_model = model
-            # torch.save(best_model, "model.pt")
+            torch.save(best_model, "model.pt")
 
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
             # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
@@ -91,7 +93,7 @@ if __name__ == '__main__':
 
         end = time.time()
 
-        print("train mse", train_mse[-1], "train emse", train_emse[-1],
+        print("train mse", train_mse[-1], "train emse", train_emse[-1], "train p", train_p[-1],
               "valid mse", valid_mse[-1], "valid emse", valid_emse[-1], "valid p", valid_p[-1],
               "minutes", round((end - start) / 60, 5))
 
