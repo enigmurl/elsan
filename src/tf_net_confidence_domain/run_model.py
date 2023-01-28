@@ -28,13 +28,15 @@ if __name__ == '__main__':
     batch_size = 32
     c = 0.25
     e_coef = 0.25
+    pruning_size = 24
 
     train_indices = list(range(0, 6000))
     valid_indices = list(range(6000, 7700))
     test_indices = list(range(7700, 9800))
 
     model = CLES(input_channels=input_length * 2, output_channels=2, kernel_size=kernel_size,
-                 dropout_rate=dropout_rate, time_range=time_range).to(device)
+                 dropout_rate=dropout_rate, time_range=time_range, pruning_size=pruning_size).to(device)
+    orthonet = model.ortho_con
     model = nn.DataParallel(model)
 
     train_set = Dataset(train_indices, input_length + time_range - 1, 40, output_length, train_direc, True)
@@ -66,13 +68,14 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        mse, emse, p = train_epoch(train_loader, model, optimizer, loss_fun, error_fun, coef, regularizer)
+        mse, emse, p = train_epoch(train_loader, model, orthonet, optimizer, loss_fun, error_fun, pruning_size,
+                                   coef, regularizer)
         train_mse.append(mse)
         train_emse.append(emse)
         train_p.append(p)
 
         model.eval()
-        mse, emse, p_valid, preds, trues = eval_epoch(valid_loader, model, loss_fun, error_fun)
+        mse, emse, p_valid, preds, trues = eval_epoch(valid_loader, model, orthonet, loss_fun, error_fun, pruning_size)
         valid_mse.append(mse)
         valid_emse.append(emse)
         valid_p.append(p_valid)

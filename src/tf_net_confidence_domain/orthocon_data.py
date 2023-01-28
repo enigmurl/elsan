@@ -7,19 +7,29 @@ from util import get_device
 
 device = get_device(no_mps=True)
 
-BATCHES = 1024
-BATCH = 1
-DIMENSION = 64
-SUBTRACTIONS = 128
+# so using that many dimensions clearly is just too much
+# maybe we split it into a four x four grid, with overlaps? (so 16 total regions) (or a 8x8??)
+# so doing 64x64 doesn't encode the inherent information we know that neighboring regions are related
+# we need to take advantage of that by having a master confidence interval for each region
+# then we can go and say that the possible error of neighboring regions is something like this
+# quadrant error and then keep going off from that, making much smaller dimension, i think that makes sense and works
+# perfectly, ok so then how do we train???
+# hmhhmhmmhmhm, so keep minimizing the size of each of the sets..., then i suppose we can use the same techniques
+# where we basically say, if current p is right, then stay, otherwise try to increase??? Works!!!
+
+BATCHES = 2048
+BATCH = 32
+DIMENSION = 4
+SUBTRACTIONS = 16
 
 # so it seems hypercones just arent going to cut it. we might want to take advantage of the symmetry of the system
 # orthocon generation hyperparameters
-MINIMUM_DOT = -0.8   # a value of negative -1 implies full space, 0 implies half space
-MID_VARIATION = 0.0  # measure out how random the cone orientations are (with 0 being always point away from center)
-NUM_SAMPLES = 2048
-ORTHANT_BIAS = 2  # bias towards an orthant as opposed to a full space
-BATCH_BIAS = 10  # bias towards a smaller region
-SAVE = "../../data/orthocon/"
+MINIMUM_DOT = -0.65   # a value of negative -1 implies full space, 0 implies half space
+MID_VARIATION = 0.5  # measure out how random the cone orientations are (with 0 being always point away from center)
+NUM_SAMPLES = 4096
+ORTHANT_BIAS = 0.5  # bias towards an orthant as opposed to a full space
+BATCH_BIAS = 1  # bias towards a smaller region
+SAVE = "../../data/orthocon/sample_"
 
 
 def rand_orthoconvex(batch):
@@ -36,6 +46,7 @@ def rand_orthoconvex(batch):
     maximum = torch.min(torch.abs(norms), dim=2).values
 
     max_dot = (torch.rand((batch, SUBTRACTIONS)).to(device) ** ORTHANT_BIAS) * (minimum - maximum) + maximum
+
     return heads, norms, max_dot
 
 
@@ -45,9 +56,6 @@ def rand_queries(batch):
     """
     left = torch.rand((batch, DIMENSION, 1)).to(device)
     right = (torch.rand((batch, DIMENSION, 1)) ** BATCH_BIAS).to(device) * (1 - left) + left
-
-    left = torch.zeros((batch, DIMENSION, 1))
-    right = torch.ones((batch, DIMENSION, 1))
 
     indices = (torch.rand(batch) * DIMENSION).long()
     left[torch.arange(batch), indices] = 1
@@ -96,7 +104,7 @@ def solve(heads, norms, dots, queries, off_indices):
     sentinel[torch.logical_not(inside)] = 0
     result[:, 1] = torch.max(sentinel, dim=1).values
 
-    print("Proportion", count, batch * NUM_SAMPLES, result)
+    print(count, batch * NUM_SAMPLES)
 
     return result
 
@@ -107,6 +115,10 @@ def load_data():
         queries, indices = rand_queries(BATCH)
 
         expected = solve(heads, norms, dots, queries, indices)
+
+        full = [heads, norms, dots, queries, expected]
+
+        torch.save(full, SAVE + str(b) + ".pt")
 
 
 if __name__ == '__main__':

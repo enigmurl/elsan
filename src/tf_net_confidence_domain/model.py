@@ -21,6 +21,26 @@ def deconv(input_channels, output_channels):
     return layer
 
 
+class Orthocon(nn.Module):
+    def __init__(self, grid_elems, pruning_elems):
+        super(Orthocon, self).__init__()
+        self.grid_rows = int(grid_elems ** 0.5)
+        self.layer1 = nn.Linear(grid_elems * 4 + pruning_elems, 18)
+        self.layer2 = nn.Linear(18, 9)
+        self.layer3 = nn.Linear(9, 4)
+        self.layer4 = nn.Linear(4, 4)
+
+    def forward(self, prune, query):
+        d0 = torch.concat((prune, query), dim=-1)
+
+        d1 = torch.tanh(self.layer1(d0))
+        d2 = torch.tanh(self.layer2(d1))
+        d3 = torch.tanh(self.layer3(d2))
+        d4 = self.layer4(d3)
+
+        return d4
+
+
 class Encoder(nn.Module):
     def __init__(self, input_channels, kernel_size, dropout_rate):
         super(Encoder, self).__init__()
@@ -99,25 +119,27 @@ class LES(nn.Module):
 
 
 class CLES(nn.Module):
-    def __init__(self, input_channels, output_channels, kernel_size, dropout_rate, time_range):
+    def __init__(self, input_channels, output_channels, kernel_size, dropout_rate, time_range, pruning_size):
         super(CLES, self).__init__()
         self.spatial_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         self.temporal_filter = nn.Conv2d(time_range, 1, kernel_size=1, padding=0, bias=False)
         self.input_channels = input_channels
         self.time_range = time_range
+        self.pruning_size = pruning_size
 
         self.encoder1 = Encoder(input_channels, kernel_size, dropout_rate)
         self.encoder2 = Encoder(input_channels, kernel_size, dropout_rate)
         self.encoder3 = Encoder(input_channels, kernel_size, dropout_rate)
 
-        self.encoder4 = Encoder(2, kernel_size, dropout_rate)  # error merging layer (only takes previous frame)
+        self.encoder4 = Encoder(pruning_size, kernel_size, dropout_rate)
 
         self.deconv3 = deconv(512, 256)
         self.deconv2 = deconv(256, 128)
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + input_channels, output_channels, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + input_channels, output_channels,
+                                      kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
         # error layers
@@ -126,16 +148,12 @@ class CLES(nn.Module):
         self.e_deconv2 = deconv(256, 128)
         self.e_deconv1 = deconv(128, 64)
         self.e_deconv0 = deconv(64, 32)
-        self.e_output_layer = nn.Conv2d(32 + input_channels, output_channels, kernel_size=kernel_size,
-                                      padding=(kernel_size - 1) // 2)
+        self.e_kernel = 3
+        self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
+                                        kernel_size=self.e_kernel,
+                                        padding=0)  # maybe change to zero?
 
-        # error autoencoder (converts a point from convex space to graph space, which is useful for training
-        # ok so new plan is we instead have a bounding box for each channel, and a compression vector
-        # we don't really need a to convex then?
-        # moreover, we can test just the intervals first, and then incorporate a compression function later on
-
-        # to be included later on
-        # self.from_convex = None
+        self.ortho_con = Orthocon(grid_elems=self.e_kernel * self.e_kernel, pruning_elems=pruning_size)
 
     def forward(self, xx, prev_error):
         xx_len = xx.shape[1]

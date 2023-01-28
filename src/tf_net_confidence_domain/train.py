@@ -31,7 +31,7 @@ class Dataset(data.Dataset):
         return x.float(), y.float()
 
 
-def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef=0, regularizer=None):
+def train_epoch(train_loader, model, orthonet, optimizer, loss_function, e_loss_fun, pruning_size, coef=0, regularizer=None):
     train_mse = []
     train_emse = []
     p = []
@@ -42,7 +42,7 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
         ims = []
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
-        error = torch.zeros((xx.shape[0], 2, *xx.shape[2:])).float().to(device)
+        error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
 
         for y in yy.transpose(0, 1):
             im, error = model(xx, error)
@@ -53,8 +53,10 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
             else:
                 loss += loss_function(im, y)
 
-            e_loss += e_loss_fun(im, error, y)
+            e_loss += e_loss_fun(orthonet, im, error, y)
             p.append(p_full_in(im, error, y))
+
+            error = torch.nn.functional.pad(error, (1, 1, 1, 1))
 
             # ims.append(im.cpu().data.numpy())
 
@@ -73,7 +75,7 @@ def train_epoch(train_loader, model, optimizer, loss_function, e_loss_fun,  coef
     return train_mse, e_loss, p
 
 
-def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
+def eval_epoch(valid_loader, model, orthonet, loss_function, e_loss_fun, pruning_size):
     valid_mse = []
     valid_emse = []
     p = []
@@ -86,7 +88,7 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
             e_loss = 0
             xx = xx.to(device)
             yy = yy.to(device)
-            error = torch.zeros((xx.shape[0], 2, *xx.shape[2:])).float().to(device)
+            error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
             ims = []
 
             print("Batch")
@@ -96,9 +98,10 @@ def eval_epoch(valid_loader, model, loss_function, e_loss_fun):
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                e_loss += e_loss_fun(im, error, y)
+                e_loss += e_loss_fun(orthonet, im, error, y)
 
-                p.append(p_full_in(im, error, y))
+                # p.append(p_full_in(im, error, y))
+                p.append(0)
 
             # ims = np.array(ims).transpose((1, 0, 2, 3, 4))
             # preds.append(ims)
