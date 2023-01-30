@@ -4,7 +4,7 @@ from torch.utils import data
 import numpy as np
 import time
 from model import CLES, LES
-from penalty import DivergenceLoss, ErrorLoss
+from penalty import DivergenceLoss, ErrorLoss, c_sample
 from train import Dataset, train_epoch, eval_epoch, test_epoch
 from util import get_device
 
@@ -25,8 +25,7 @@ if __name__ == '__main__':
     learning_rate = 0.001
     dropout_rate = 0
     kernel_size = 3
-    batch_size = 32
-    c = 0.25
+    batch_size = 64
     e_coef = 0.25
     pruning_size = 24
 
@@ -42,10 +41,10 @@ if __name__ == '__main__':
     train_set = Dataset(train_indices, input_length + time_range - 1, 40, output_length, train_direc, True)
     valid_set = Dataset(valid_indices, input_length + time_range - 1, 40, 6, test_direc, True)
     # workers causing bugs on m1x, likely due to lack of memory
-    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=8)
-    valid_loader = data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=8)
+    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
+    valid_loader = data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=0)
     loss_fun = torch.nn.MSELoss()
-    error_fun = ErrorLoss(c, e_coef)
+    error_fun = ErrorLoss(e_coef)
     regularizer = DivergenceLoss(torch.nn.MSELoss())
     coef = 0
 
@@ -54,13 +53,15 @@ if __name__ == '__main__':
 
     train_mse = []
     train_emse = []
+    train_lorris = []
     train_p = []
     valid_mse = []
     valid_emse = []
     valid_p = []
+    valid_lorris = []
     test_mse = []
 
-    for i in range(100):
+    for i in range(1000):
         print("Epoch", i)
 
         start = time.time()
@@ -68,17 +69,22 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        mse, emse, p = train_epoch(train_loader, model, orthonet, optimizer, loss_fun, error_fun, pruning_size,
-                                   coef, regularizer)
+        mse, emse, p, lorris = train_epoch(train_loader, model, orthonet, optimizer, c_sample, loss_fun, error_fun,
+                                           pruning_size,
+                                           coef, regularizer)
+
         train_mse.append(mse)
+        train_lorris.append(lorris)
         train_emse.append(emse)
         train_p.append(p)
 
         model.eval()
-        mse, emse, p_valid, preds, trues = eval_epoch(valid_loader, model, orthonet, loss_fun, error_fun, pruning_size)
+        mse, emse, p_valid, lorris, preds, trues = eval_epoch(valid_loader, model, orthonet,
+                                                              c_sample, loss_fun, error_fun, pruning_size)
         valid_mse.append(mse)
         valid_emse.append(emse)
         valid_p.append(p_valid)
+        valid_lorris.append(lorris)
 
         if valid_mse[-1] + valid_emse[-1] < min_mse:
             min_mse = valid_mse[-1] + valid_emse[-1]
@@ -97,8 +103,10 @@ if __name__ == '__main__':
         end = time.time()
 
         print("train mse", train_mse[-1], "train emse", train_emse[-1], "train p", train_p[-1],
+              "train lorris", train_lorris[-1],
               "valid mse", valid_mse[-1], "valid emse", valid_emse[-1], "valid p", valid_p[-1],
+              "valid lorris", valid_lorris[-1],
               "minutes", round((end - start) / 60, 5))
 
-        if len(train_mse) > 50 and np.mean(valid_mse[-5:]) >= np.mean(valid_mse[-10:-5]):
+        if len(train_mse) > 75 and np.mean(valid_mse[-5:]) >= np.mean(valid_mse[-10:-5]):
             break

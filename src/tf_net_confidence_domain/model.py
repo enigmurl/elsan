@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 
 
-def conv(input_channels, output_channels, kernel_size, stride, dropout_rate):
+def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True):
     layer = nn.Sequential(
         nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
-                  stride=stride, padding=(kernel_size - 1) // 2),
+                  stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
         nn.BatchNorm2d(output_channels),
         nn.LeakyReLU(0.1, inplace=True),
         nn.Dropout(dropout_rate)
@@ -22,23 +22,31 @@ def deconv(input_channels, output_channels):
 
 
 class Orthocon(nn.Module):
-    def __init__(self, grid_elems, pruning_elems):
+    def __init__(self, grid_elems, pruning_elems, dropout_rate):
         super(Orthocon, self).__init__()
         self.grid_rows = int(grid_elems ** 0.5)
-        self.layer1 = nn.Linear(grid_elems * 4 + pruning_elems, 18)
-        self.layer2 = nn.Linear(18, 9)
-        self.layer3 = nn.Linear(9, 4)
-        self.layer4 = nn.Linear(4, 4)
 
-    def forward(self, prune, query):
-        d0 = torch.concat((prune, query), dim=-1)
+        self.layer1 = conv(4, 12,
+                           kernel_size=self.grid_rows, stride=1, dropout_rate=dropout_rate, pad=False)
+        self.layer2 = conv(12 + pruning_elems + 1, 16,
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+        self.layer3 = conv(16, 12,
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+        self.layer4 = conv(12, 8,
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+        self.layer5 = nn.Conv2d(8, 4, kernel_size=1, stride=1, padding=0)
 
-        d1 = torch.tanh(self.layer1(d0))
-        d2 = torch.tanh(self.layer2(d1))
-        d3 = torch.tanh(self.layer3(d2))
+    def forward(self, prune, query, c):
+        d1 = self.layer1(query)
+        d1 = torch.concat((prune, d1), dim=1)
+        d1 = torch.nn.functional.pad(d1, (0, 0, 0, 0, 1, 0), value=c)  # add a layer of c
+
+        d2 = self.layer2(d1)
+        d3 = self.layer3(d2)
         d4 = self.layer4(d3)
+        d5 = self.layer5(d4)
 
-        return d4
+        return d5
 
 
 class Encoder(nn.Module):
@@ -153,7 +161,9 @@ class CLES(nn.Module):
                                         kernel_size=self.e_kernel,
                                         padding=0)  # maybe change to zero?
 
-        self.ortho_con = Orthocon(grid_elems=self.e_kernel * self.e_kernel, pruning_elems=pruning_size)
+        self.ortho_con = Orthocon(grid_elems=self.e_kernel * self.e_kernel,
+                                  pruning_elems=pruning_size,
+                                  dropout_rate=dropout_rate)
 
     def forward(self, xx, prev_error):
         xx_len = xx.shape[1]
@@ -168,7 +178,8 @@ class CLES(nn.Module):
         for i in range(xx_len // 2 - self.input_channels // 2, xx_len // 2):
             cur_mean = torch.cat(
                 [self.temporal_filter(u_tilde2[:, i - self.time_range + 1:i + 1, 0, :, :]).unsqueeze(2),
-                 self.temporal_filter(u_tilde2[:, i - self.time_range + 1:i + 1, 1, :, :]).unsqueeze(2)], dim=2)
+                 self.temporal_filter(u_tilde2[:, i - self.time_range + 1:i + 1, 1, :, :]).unsqueeze(2)], dim=2
+            )
             u_mean.append(cur_mean)
         u_mean = torch.cat(u_mean, dim=1)
         u_mean = u_mean.reshape(u_mean.shape[0], -1, 64, 64)

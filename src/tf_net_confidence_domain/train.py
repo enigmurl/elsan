@@ -31,34 +31,39 @@ class Dataset(data.Dataset):
         return x.float(), y.float()
 
 
-def train_epoch(train_loader, model, orthonet, optimizer, loss_function, e_loss_fun, pruning_size, coef=0, regularizer=None):
+def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, e_loss_fun, pruning_size,
+                coef=0, regularizer=None):
     train_mse = []
     train_emse = []
     p = []
+    lorris = []
 
-    for xx, yy in train_loader:
+    for b, (xx, yy) in enumerate(train_loader):
         loss = 0
         e_loss = 0
+        c = c_fun()
         ims = []
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
-        error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
+        error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device).detach()
 
         for y in yy.transpose(0, 1):
             im, error = model(xx, error)
             xx = torch.cat([xx[:, 2:], im], 1)
-      
+
             if coef != 0:
                 loss += loss_function(im, y) + coef*regularizer(im, y)
             else:
                 loss += loss_function(im, y)
 
-            e_loss += e_loss_fun(orthonet, im, error, y)
-            p.append(p_full_in(im, error, y))
+            pval, l, dloss = e_loss_fun(orthonet, im, error, y, c)
+            e_loss += dloss
+            p.append(pval.cpu().data.numpy())
+            lorris.append(l.cpu().data.numpy())
 
-            error = torch.nn.functional.pad(error, (1, 1, 1, 1))
-
-            # ims.append(im.cpu().data.numpy())
+            pad = (xx.shape[-1] - error.shape[-1]) // 2
+            error = torch.nn.functional.pad(error, (pad, pad, pad, pad)).detach()  # should not affect future results
+        # ims.append(im.cpu().data.numpy())
 
         full_loss = loss + e_loss
 
@@ -71,19 +76,22 @@ def train_epoch(train_loader, model, orthonet, optimizer, loss_function, e_loss_
 
     train_mse, e_loss = round(np.sqrt(np.mean(train_mse)), 5), round(np.sqrt(np.mean(train_emse)), 5)
     p = np.mean(p, axis=0)
+    lorris = np.mean(lorris)
 
-    return train_mse, e_loss, p
+    return train_mse, e_loss, p, lorris
 
 
-def eval_epoch(valid_loader, model, orthonet, loss_function, e_loss_fun, pruning_size):
+def eval_epoch(valid_loader, model, orthonet, c_fun, loss_function, e_loss_fun, pruning_size):
     valid_mse = []
     valid_emse = []
     p = []
+    lorris = []
 
     preds = []
     trues = []
     with torch.no_grad():
         for xx, yy in valid_loader:
+            c = c_fun()
             loss = 0
             e_loss = 0
             xx = xx.to(device)
@@ -91,17 +99,19 @@ def eval_epoch(valid_loader, model, orthonet, loss_function, e_loss_fun, pruning
             error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
             ims = []
 
-            print("Batch")
             for y in yy.transpose(0, 1):
                 im, error = model(xx, error)
                 xx = torch.cat([xx[:, 2:], im], 1)
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                e_loss += e_loss_fun(orthonet, im, error, y)
+                pval, l, dloss = e_loss_fun(orthonet, im, error, y, c)
+                e_loss += dloss
+                p.append(pval.cpu().data.numpy())
+                lorris.append(l.cpu().data.numpy())
 
-                # p.append(p_full_in(im, error, y))
-                p.append(0)
+                pad = (xx.shape[-1] - error.shape[-1]) // 2
+                error = torch.nn.functional.pad(error, (pad, pad, pad, pad))
 
             # ims = np.array(ims).transpose((1, 0, 2, 3, 4))
             # preds.append(ims)
@@ -116,8 +126,9 @@ def eval_epoch(valid_loader, model, orthonet, loss_function, e_loss_fun, pruning
         valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
         valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
         p = np.mean(p, axis=0)
+        lorris = np.mean(lorris)
 
-    return valid_mse, valid_emse, p, preds, trues
+    return valid_mse, valid_emse, p, lorris, preds, trues
 
 
 def test_epoch(test_loader, model, loss_function, e_loss_fun):
