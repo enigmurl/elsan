@@ -25,93 +25,91 @@ def p_full_in(actual_mu, actual_sigma, expected):
 
 
 def c_sample(max_p=NormalDist().cdf(4)):
+    return -1
     in_p = torch.rand(1) * (2 * max_p - 1) + (1 - max_p)
     delta = abs(in_p - 0.5) * 2
     return NormalDist().inv_cdf(delta)
 
 
 class ErrorLoss(torch.nn.Module):
-    def __init__(self, coef, lorris=0.05, hammer=1, hammer_buffer=0.05):
+    def __init__(self):
         super(ErrorLoss, self).__init__()
-        self.coef = coef
-        self.lorris = lorris
-        self.hammer = hammer
-        self.hammer_buffer = hammer_buffer
-        self.mse = torch.nn.MSELoss()
 
-    def forward(self, ortho_net, actual_mu, actual_pruning, expected, con):
-        rows = ortho_net.grid_rows
+    def forward(self, ortho_nets, actual_mu, actual_pruning, expected, con_list, hammer):
+        loss = 0
         # so new system is to randomly apply the ins and outs
         # and then the relative pivot position for each batch is fixed...
         # [batch, 4, rows, cols]
         batch = actual_mu.shape[0]
         r = actual_mu.shape[-2]
         c = actual_mu.shape[-1]
-        query = torch.tile(expected, dims=(1, 2, 1, 1))
+        for con, ortho in zip(con_list, ortho_nets):
+            rows = ortho.grid_rows
+            query = torch.tile(expected, dims=(1, 2, 1, 1))
 
-        # shut off random channels
-        channel_mask = torch.rand((batch, 1, r, c), device=device) > 0.5
-        mask = torch.tile(channel_mask, dims=(1, 2, 1, 1))
+            # shut off random channels
+            channel_mask = torch.rand((batch, 1, r, c), device=device) > 0.5
+            mask = torch.tile(channel_mask, dims=(1, 2, 1, 1))
 
-        query[:, :2][mask] = -1
-        query[:, 2:][mask] = +1
+            query[:, :2][mask] = -1
+            query[:, 2:][mask] = +1
 
-        # input inverted interval
-        # TODO we need to see how to do per instance of batch
-        pivot_dr = (torch.rand(batch) * rows).long()
-        pivot_dc = (torch.rand(batch) * rows).long()
+            # input inverted interval
+            # TODO we need to see how to do per instance of batch
+            pivot_dr = (torch.rand(batch) * rows).long()
+            pivot_dc = (torch.rand(batch) * rows).long()
 
-        # fixes mps bug
-        for k in range(batch):
-            query[k, :2, pivot_dr[k]::rows, pivot_dc[k]::rows] = torch.ones(1).to(device)
-            query[k, 2:, pivot_dr[k]::rows, pivot_dc[k]::rows] = -torch.ones(1).to(device)
+            # fixes mps bug
+            for k in range(batch):
+                query[k, :2, pivot_dr[k]::rows, pivot_dc[k]::rows] = torch.ones(1).to(device)
+                query[k, 2:, pivot_dr[k]::rows, pivot_dc[k]::rows] = -torch.ones(1).to(device)
 
-        query = query.detach()
+            query = query.detach()
 
-        result = ortho_net(actual_pruning, query, con)
-        real_dif = (expected - actual_mu).detach()  # do not adjust mu
+            result = ortho(actual_pruning, query, con)
+            real_dif = (expected - actual_mu).detach()  # do not adjust mu
 
-        # for each node, set the central value to the true difference of the pivot
-        reverse_pad = (rows - 1) // 2 * 2
-        dif_index = torch.zeros((batch, 2, r - reverse_pad, c - reverse_pad), device=device)
-        # TODO, remove for loops (possibly via reshaping + padding)
-        for i in range(rows):
-            for j in range(rows):
-                for k in range(batch):
-                    end_r = (r - reverse_pad - i + rows - 1) // rows * rows + pivot_dr[k]
-                    end_c = (c - reverse_pad - j + rows - 1) // rows * rows + pivot_dc[k]
-                    dif_index[k, :, i::rows, j::rows] = real_dif[k, :, pivot_dr[k]:end_r:rows, pivot_dc[k]:end_c:rows]
+            # for each node, set the central value to the true difference of the pivot
+            reverse_pad = (rows - 1) // 2 * 2
+            dif_index = torch.zeros((batch, 2, r - reverse_pad, c - reverse_pad), device=device)
+            # TODO, remove for loops (possibly via reshaping + padding)
+            for i in range(rows):
+                for j in range(rows):
+                    for k in range(batch):
+                        end_r = (r - reverse_pad - i + rows - 1) // rows * rows + pivot_dr[k]
+                        end_c = (c - reverse_pad - j + rows - 1) // rows * rows + pivot_dc[k]
+                        dif_index[k, :, i::rows, j::rows] = real_dif[k, :, pivot_dr[k]:end_r:rows, pivot_dc[k]:end_c:rows]
 
-        greater = dif_index >= result[:, :2]
-        less = dif_index <= result[:, 2:]
+            greater = dif_index >= result[:, :2]
+            less = dif_index <= result[:, 2:]
 
-        full_in = torch.logical_and(greater, less)
-        count_in = torch.sum(full_in)
-        p_in = count_in / torch.numel(full_in)
+            full_in = torch.logical_and(greater, less)
+            count_in = torch.sum(full_in)
+            p_in = count_in / torch.numel(full_in)
 
-        widths = torch.mean(torch.square(result[:, 2:] - result[:, :2]))
-        lorris = self.lorris * widths  # sum of widths
+            widths = torch.mean(torch.square(result[:, 2:] - result[:, :2]))
 
-        converted_c = NormalDist().cdf(con)
-        if p_in < converted_c:
-            # Hammer on nodes outside
-            def hammer(x):
-                return torch.mean(torch.square(torch.relu(x + self.hammer_buffer))) * self.hammer
-            loss = hammer(dif_index - result[:, 2:])
-            loss += hammer(result[:, :2] - dif_index)
-            print(f"Not contained {float(p_in.cpu().data):.4f} "
-                  f"compare {converted_c:.4f} "
-                  f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                  f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                  f"width {float(torch.sqrt(widths).cpu().data):.4f}")
-        else:
-            loss = lorris  # regularizer
-            print(f"Yes contained {float(p_in.cpu().data):.4f} "
-                  f"compare {converted_c:.4f} "
-                  f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                  f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                  f"width {float(torch.sqrt(widths).cpu().data):.4f}")
-        return p_in, lorris, loss
+            converted_c = NormalDist().cdf(con)
+
+            if p_in < converted_c:
+                # Hammer on nodes outside
+                loss += hammer.hammer_loss(result[:, :2], dif_index, result[:, 2:])
+                print(f"Not contained {float(p_in.cpu().data):.4f} "
+                      f"compare {converted_c:.4f} "
+                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
+                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
+                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
+            else:
+                loss += hammer.lorris_loss(result[:, :2], dif_index, result[:, 2:])
+                print(f"Yes contained {float(p_in.cpu().data):.4f} "
+                      f"compare {converted_c:.4f} "
+                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
+                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
+                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
+
+        loss /= len(ortho_nets)
+
+        return p_in, torch.sqrt(widths), loss
 
         # batch, x, y, prune
         # t_pruning = torch.permute(actual_pruning, (0, 2, 3, 1))

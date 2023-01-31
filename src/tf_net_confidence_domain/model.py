@@ -127,7 +127,7 @@ class LES(nn.Module):
 
 
 class CLES(nn.Module):
-    def __init__(self, input_channels, output_channels, kernel_size, dropout_rate, time_range, pruning_size):
+    def __init__(self, input_channels, output_channels, kernel_size, dropout_rate, time_range, pruning_size, orthos):
         super(CLES, self).__init__()
         self.spatial_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         self.temporal_filter = nn.Conv2d(time_range, 1, kernel_size=1, padding=0, bias=False)
@@ -159,11 +159,17 @@ class CLES(nn.Module):
         self.e_kernel = 3
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=self.e_kernel,
-                                        padding=0)  # maybe change to zero?
+                                        padding=0)
 
-        self.ortho_con = Orthocon(grid_elems=self.e_kernel * self.e_kernel,
-                                  pruning_elems=pruning_size,
-                                  dropout_rate=dropout_rate)
+        seed = torch.seed()
+        ortho_list = []
+        for _ in range(orthos):
+            torch.manual_seed(seed)
+            ortho_list.append(Orthocon(grid_elems=self.e_kernel * self.e_kernel,
+                                       pruning_elems=pruning_size,
+                                       dropout_rate=dropout_rate))
+
+        self.ortho_cons = nn.ModuleList(ortho_list)
 
     def forward(self, xx, prev_error):
         xx_len = xx.shape[1]

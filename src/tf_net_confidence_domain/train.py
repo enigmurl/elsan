@@ -31,7 +31,7 @@ class Dataset(data.Dataset):
         return x.float(), y.float()
 
 
-def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, e_loss_fun, pruning_size,
+def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_function, e_loss_fun, pruning_size,
                 coef=0, regularizer=None):
     train_mse = []
     train_emse = []
@@ -41,7 +41,6 @@ def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, 
     for b, (xx, yy) in enumerate(train_loader):
         loss = 0
         e_loss = 0
-        c = c_fun()
         ims = []
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
@@ -56,7 +55,7 @@ def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, 
             else:
                 loss += loss_function(im, y)
 
-            pval, l, dloss = e_loss_fun(orthonet, im, error, y, c)
+            pval, l, dloss = e_loss_fun(orthonet, im, error, y, c_fun, hammer)
             e_loss += dloss
             p.append(pval.cpu().data.numpy())
             lorris.append(l.cpu().data.numpy())
@@ -73,6 +72,7 @@ def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, 
         optimizer.zero_grad()
         full_loss.backward()
         optimizer.step()
+        hammer.step()
 
     train_mse, e_loss = round(np.sqrt(np.mean(train_mse)), 5), round(np.sqrt(np.mean(train_emse)), 5)
     p = np.mean(p, axis=0)
@@ -81,7 +81,7 @@ def train_epoch(train_loader, model, orthonet, optimizer, c_fun, loss_function, 
     return train_mse, e_loss, p, lorris
 
 
-def eval_epoch(valid_loader, model, orthonet, c_fun, loss_function, e_loss_fun, pruning_size):
+def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_loss_fun, pruning_size):
     valid_mse = []
     valid_emse = []
     p = []
@@ -91,7 +91,6 @@ def eval_epoch(valid_loader, model, orthonet, c_fun, loss_function, e_loss_fun, 
     trues = []
     with torch.no_grad():
         for xx, yy in valid_loader:
-            c = c_fun()
             loss = 0
             e_loss = 0
             xx = xx.to(device)
@@ -105,7 +104,7 @@ def eval_epoch(valid_loader, model, orthonet, c_fun, loss_function, e_loss_fun, 
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                pval, l, dloss = e_loss_fun(orthonet, im, error, y, c)
+                pval, l, dloss = e_loss_fun(orthonet, im, error, y, c_fun, hammer)
                 e_loss += dloss
                 p.append(pval.cpu().data.numpy())
                 lorris.append(l.cpu().data.numpy())
