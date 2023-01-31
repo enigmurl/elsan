@@ -38,7 +38,7 @@ class Orthocon(nn.Module):
 
     def forward(self, prune, query, c):
         d1 = self.layer1(query)
-        d1 = torch.concat((prune, d1), dim=1)
+        d1 = torch.cat((prune, d1), dim=1)
         d1 = torch.nn.functional.pad(d1, (0, 0, 0, 0, 1, 0), value=c)  # add a layer of c
 
         d2 = self.layer2(d1)
@@ -121,8 +121,8 @@ class LES(nn.Module):
         out_deconv2 = self.deconv2(out_conv3_mean + out_conv3_tilde + out_conv3_prime + out_deconv3)
         out_deconv1 = self.deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_deconv1)
-        concat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
-        out = self.output_layer(concat0)
+        cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
+        out = self.output_layer(cat0)
         return out, error
 
 
@@ -200,14 +200,14 @@ class CLES(nn.Module):
         out_deconv2 = self.deconv2(out_conv3_mean + out_conv3_tilde + out_conv3_prime + out_conv3_error + out_deconv3)
         out_deconv1 = self.deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_conv2_error + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_conv1_error + out_deconv1)
-        concat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
-        out = self.output_layer(concat0)
+        cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
+        out = self.output_layer(cat0)
 
         out_deconv3 = self.e_deconv3(out_conv4_mean + out_conv4_tilde + out_conv4_prime + out_conv4_error)
         out_deconv2 = self.e_deconv2(out_conv3_mean + out_conv3_tilde + out_conv3_prime + out_conv3_error + out_deconv3)
         out_deconv1 = self.e_deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_conv2_error + out_deconv2)
         out_deconv0 = self.e_deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_conv1_error + out_deconv1)
-        concat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
-        error_out = self.e_output_layer(concat0)
+        cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
+        error_out = self.e_output_layer(cat0)
 
         return out, error_out

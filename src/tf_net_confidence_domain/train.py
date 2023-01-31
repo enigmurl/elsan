@@ -119,8 +119,8 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
             valid_mse.append(loss.item()/yy.shape[1])
             valid_emse.append(e_loss.item()/yy.shape[1])
 
-        # preds = np.concatenate(preds, axis=0)
-        # trues = np.concatenate(trues, axis=0)
+        # preds = np.catenate(preds, axis=0)
+        # trues = np.catenate(trues, axis=0)
 
         valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
         valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
@@ -163,8 +163,8 @@ def test_epoch(test_loader, model, loss_function, e_loss_fun):
             valid_mse.append(loss.item()/yy.shape[1])
             valid_emse.append(e_loss.item()/yy.shape[1])
 
-        preds = np.concatenate(preds, axis=0)
-        trues = np.concatenate(trues, axis=0)
+        preds = np.catenate(preds, axis=0)
+        trues = np.catenate(trues, axis=0)
 
         loss_curve = np.array(loss_curve).reshape(-1, 60)
         loss_curve = np.sqrt(np.mean(loss_curve, axis=0))
