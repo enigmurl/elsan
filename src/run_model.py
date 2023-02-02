@@ -18,7 +18,6 @@ train_direc = "../data/data_64/sample_"
 test_direc = "../data/data_64/sample_"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
-min_mse = 1
 time_range = 6
 output_length = 4
 input_length = 25
@@ -41,8 +40,8 @@ if __name__ == '__main__':
     orthonet = model.ortho_cons
     model = nn.DataParallel(model)
 
-    train_set = Dataset(train_indices, input_length + time_range - 1, 40, output_length, train_direc, True)
-    valid_set = Dataset(valid_indices, input_length + time_range - 1, 40, 6, test_direc, True)
+    train_set = Dataset(train_indices, input_length + time_range - 1, 30, output_length, train_direc, True)
+    valid_set = Dataset(valid_indices, input_length + time_range - 1, 30, 6, test_direc, True)
     # workers causing bugs on m1x, likely due to lack of memory
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
     valid_loader = data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -65,6 +64,7 @@ if __name__ == '__main__':
     valid_p = []
     valid_lorris = []
     test_mse = []
+    min_mse = 100
 
     for i in range(1000):
         print("Epoch", i)
