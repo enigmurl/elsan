@@ -26,6 +26,8 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        step_multiple=0.2,
                        length_func=lambda norm: 0.25 * sigmoid(norm)
                        )
+
+
 def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=8):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
@@ -65,7 +67,7 @@ class VisualizeSigma(Scene):
 
         frames = self.load_rand()
         model = self.model()
-        model.eval()
+        # model.eval()
 
         root = VGroup()
 
@@ -106,7 +108,7 @@ class VisualizeSigma(Scene):
             prev = fnum
             fnum = int(t / FRAME_DT)
 
-            if fnum * 2 + 3 + TOFFSET * 2 >= frames.shape[1]:
+            if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
                 return
 
             if fnum > prev:
@@ -115,15 +117,15 @@ class VisualizeSigma(Scene):
                 im, prev_error = model(xx, prev_error)
                 xx = torch.cat([xx[:, 2:], im], 1)
                 contained = contains_sample(model, im, prev_error,
-                                            frames[:, 2 * fnum + 2 + TOFFSET * 2: 2 * fnum + 4 + TOFFSET * 2].to(device))
+                                            frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
                 samp = ran_sample(model, im, prev_error).cpu().data.numpy()
                 im = im.cpu().data.numpy()
                 print("Step model ", contained)
             else:
                 return
 
-            tx = frames[0, 2 * fnum + 2 + TOFFSET * 2]
-            ty = frames[0, 2 * fnum + 3 + TOFFSET * 2]
+            tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
+            ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
 
             mx = im[0, 0]
             my = im[0, 1]
@@ -148,7 +150,7 @@ class VisualizeSigma(Scene):
         root.add_updater(update)
         self.add(root)
 
-        self.wait(stop_condition=lambda: fnum * 2 + 3 + TOFFSET * 2 >= frames.shape[1])
+        self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
 
 
 

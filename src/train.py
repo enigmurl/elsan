@@ -46,7 +46,6 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
         error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device).detach()
-        print(xx.shape, error.shape)
         for y in yy.transpose(0, 1):
             im, error = model(xx, error)
             xx = torch.cat([xx[:, 2:], im], 1)

@@ -104,9 +104,9 @@ def contains_sample(model, mu, pruning_error, y_true):
                                           con_list[-1])
 
             x = torch.squeeze(torch.logical_and(delta[:, 0, r, c] >= ranges[:, 0],
-                                     delta[:, 0, r, c] <= ranges[:, 2]))  # x
+                              delta[:, 0, r, c] <= ranges[:, 2]))  # x
             y = torch.squeeze(torch.logical_and(delta[:, 1, r, c] >= ranges[:, 1],
-                                     delta[:, 1, r, c] <= ranges[:, 3]))  # y
+                              delta[:, 1, r, c] <= ranges[:, 3]))  # y
             if x and y:
                 count += 1
 
@@ -144,14 +144,22 @@ def contains_sample(model, mu, pruning_error, y_true):
     return ret
 
 
-def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True):
-    layer = nn.Sequential(
-        nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
-                  stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
-        nn.BatchNorm2d(output_channels),
-        nn.LeakyReLU(0.1, inplace=True),
-        nn.Dropout(dropout_rate)
-    )
+def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
+    if not norm:
+        layer = nn.Sequential(
+            nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
+                      stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Dropout(dropout_rate)
+        )
+    else:
+        layer = nn.Sequential(
+            nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
+                      stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
+            nn.BatchNorm2d(output_channels),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Dropout(dropout_rate)
+        )
     return layer
 
 
@@ -169,15 +177,15 @@ class Orthocon(nn.Module):
         self.grid_rows = int(grid_elems ** 0.5)
 
         self.layer0 = conv(4, 12,
-                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False)
+                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
         self.layer1 = conv(12, 12,
-                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False)
+                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
         self.layer2 = conv(12 + pruning_elems + 1, 16,
-                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate, norm=False)
         self.layer3 = conv(16, 12,
-                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate, norm=False)
         self.layer4 = conv(12, 8,
-                           kernel_size=1, stride=1, dropout_rate=dropout_rate)
+                           kernel_size=1, stride=1, dropout_rate=dropout_rate, norm=False)
         self.layer5 = nn.Conv2d(8, 4, kernel_size=1, stride=1, padding=0)
 
     def forward(self, prune, query, c):

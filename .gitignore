@@ -6,4 +6,3 @@ virtualenv
 *.swp
 .DS_Store
 *.pem
-
