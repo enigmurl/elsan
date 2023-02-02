@@ -1,5 +1,146 @@
 import torch
 import torch.nn as nn
+from statistics import *
+from util import get_device
+
+device = get_device()
+
+con_list = [-1,
+            0,
+            1,
+            3,
+            NormalDist().inv_cdf(0.5 ** (1 / (64 * 64)))  # approximately 3.5839613878867564
+            ]
+e_kernel = 5
+
+
+def _orthocon_sample_t(model, prune, query, rand):
+    rights = []
+    lefts = []
+    for ortho, c in zip(model.ortho_cons, con_list):
+        data = torch.flatten(ortho(prune, query, c), 1)
+        cprime = NormalDist().cdf(c)
+        rights.append((0.5 + cprime / 2, data[:, 2:]))
+        lefts.append((0.5 - cprime / 2, data[:, :2]))
+
+    last_c = NormalDist().cdf(con_list[-1])
+
+    total = lefts[::-1] + rights
+    ret = []
+    for k in range(len(prune)):
+        arr = []
+        for j in range(2):
+            p = rand[k][j]
+            norm_p = (p * last_c) + (1 - last_c) / 2
+            res = None
+            for i in range(len(total) - 1):
+                l = total[i][0]
+                r = total[i + 1][0]
+                d = (norm_p - l) / (r - l)
+                if l <= norm_p <= r:
+                    res = (total[i + 1][1][k][j] - total[i][1][k][j]) * d + total[i][1][k][j]
+                    break
+
+            arr.append(float(res))
+
+        ret.append(arr)
+
+    return torch.tensor(ret)
+
+
+def ran_sample(model, mu, pruning_error):
+    rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=device)
+    query = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
+    query[:, :2] = -query[:, :2]
+
+    # seed column
+    for c in range(mu.shape[-1]):
+        for r in range(e_kernel):
+            query[:, :2, r, c] = 1
+            query[:, 2:, r, c] = -1
+            cp = max(0, c - e_kernel + 1)
+            converted_t = _orthocon_sample_t(model,
+                                             pruning_error[:, :, r:r+1, cp:cp+1],
+                                             query[:, :, :e_kernel, cp:cp + e_kernel],
+                                             rand[:, :, r, c])
+            query[:, 0::2, r, c] = converted_t
+            query[:, 1::2, r, c] = converted_t
+
+    for r in range(e_kernel, mu.shape[-2]):
+        for c in range(mu.shape[-1]):
+            query[:, :2, r, c] = 1
+            query[:, 2:, r, c] = -1
+            cp = max(0, c - e_kernel + 1)
+            rp = max(0, r - e_kernel + 1)
+
+            converted_t = _orthocon_sample_t(model,
+                                             pruning_error[:, :, rp:rp+1, cp:cp+1],
+                                             query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
+                                             rand[:, :, r, c])
+            query[:, 0::2, r, c] = converted_t
+            query[:, 1::2, r, c] = converted_t
+
+    return query[:, :2] + mu
+
+
+def contains_sample(model, mu, pruning_error, y_true):
+    query = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
+    query[:, :2] = -query[:, :2]
+
+    delta = y_true - mu
+
+    count = 0
+
+    ret = torch.full((mu.shape[0], ), 1, dtype=torch.uint8, device=device)
+    for c in range(mu.shape[-1]):
+        for r in range(model.e_kernel):
+            query[:, :2, r, c] = 1
+            query[:, 2:, r, c] = -1
+            cp = max(0, c - e_kernel + 1)
+            rp = max(0, r - e_kernel + 1)
+
+            ranges = model.ortho_cons[-1](pruning_error[:, :, rp:rp+1, cp:cp+1],
+                                          query[:, :, :e_kernel, cp:cp + e_kernel],
+                                          con_list[-1])
+
+            x = torch.squeeze(torch.logical_and(delta[:, 0, r, c] >= ranges[:, 0],
+                                     delta[:, 0, r, c] <= ranges[:, 2]))  # x
+            y = torch.squeeze(torch.logical_and(delta[:, 1, r, c] >= ranges[:, 1],
+                                     delta[:, 1, r, c] <= ranges[:, 3]))  # y
+            if x and y:
+                count += 1
+
+            ret &= x
+            ret &= y
+
+            query[:, 0::2, r, c] = delta[:, 0, r, c]
+            query[:, 1::2, r, c] = delta[:, 1, r, c]
+
+    for r in range(e_kernel, mu.shape[-2]):
+        for c in range(mu.shape[-1]):
+            query[:, :2, r, c] = 1
+            query[:, 2:, r, c] = -1
+            cp = max(0, c - e_kernel + 1)
+            rp = max(0, r - e_kernel + 1)
+
+            ranges = model.ortho_cons[-1](pruning_error[:, :, rp:rp + 1, cp:cp + 1],
+                                          query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
+                                          con_list[-1])
+
+            x = torch.squeeze(torch.logical_and(delta[:, 0, r, c] >= ranges[:, 0],
+                                                delta[:, 0, r, c] <= ranges[:, 2]))  # x
+            y = torch.squeeze(torch.logical_and(delta[:, 1, r, c] >= ranges[:, 1],
+                                                delta[:, 1, r, c] <= ranges[:, 3]))  # y
+            if x and y:
+                count += 1
+
+            ret &= x
+            ret &= y
+
+            query[:, 0::2, r, c] = delta[:, 0, r, c]
+            query[:, 1::2, r, c] = delta[:, 1, r, c]
+
+    return ret
 
 
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True):
@@ -26,8 +167,10 @@ class Orthocon(nn.Module):
         super(Orthocon, self).__init__()
         self.grid_rows = int(grid_elems ** 0.5)
 
-        self.layer1 = conv(4, 12,
-                           kernel_size=self.grid_rows, stride=1, dropout_rate=dropout_rate, pad=False)
+        self.layer0 = conv(4, 12,
+                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False)
+        self.layer1 = conv(12, 12,
+                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False)
         self.layer2 = conv(12 + pruning_elems + 1, 16,
                            kernel_size=1, stride=1, dropout_rate=dropout_rate)
         self.layer3 = conv(16, 12,
@@ -37,7 +180,9 @@ class Orthocon(nn.Module):
         self.layer5 = nn.Conv2d(8, 4, kernel_size=1, stride=1, padding=0)
 
     def forward(self, prune, query, c):
-        d1 = self.layer1(query)
+        d0 = self.layer0(query)
+
+        d1 = self.layer1(d0)
         d1 = torch.cat((prune, d1), dim=1)
         d1 = torch.nn.functional.pad(d1, (0, 0, 0, 0, 1, 0), value=c)  # add a layer of c
 
@@ -156,7 +301,7 @@ class CLES(nn.Module):
         self.e_deconv2 = deconv(256, 128)
         self.e_deconv1 = deconv(128, 64)
         self.e_deconv0 = deconv(64, 32)
-        self.e_kernel = 3
+        self.e_kernel = e_kernel
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=self.e_kernel,
                                         padding=0)
@@ -211,3 +356,4 @@ class CLES(nn.Module):
         error_out = self.e_output_layer(cat0)
 
         return out, error_out
+

@@ -59,7 +59,6 @@ class ErrorLoss(torch.nn.Module):
             pivot_dr = (torch.rand(batch) * rows).long()
             pivot_dc = (torch.rand(batch) * rows).long()
 
-            # fixes mps bug
             for k in range(batch):
                 query[k, :2, pivot_dr[k]::rows, pivot_dc[k]::rows] = torch.ones(1).to(device)
                 query[k, 2:, pivot_dr[k]::rows, pivot_dc[k]::rows] = -torch.ones(1).to(device)
@@ -67,7 +66,8 @@ class ErrorLoss(torch.nn.Module):
             query = query.detach()
 
             result = ortho(actual_pruning, query, con)
-            real_dif = (expected - actual_mu).detach()  # do not adjust mu
+            # real_dif = (expected - actual_mu).detach()  # do not adjust mu
+            real_dif = expected
 
             # for each node, set the central value to the true difference of the pivot
             reverse_pad = (rows - 1) // 2 * 2
@@ -110,78 +110,6 @@ class ErrorLoss(torch.nn.Module):
         loss /= len(ortho_nets)
 
         return p_in, torch.sqrt(widths), loss
-
-        # batch, x, y, prune
-        # t_pruning = torch.permute(actual_pruning, (0, 2, 3, 1))
-        #
-        # real_dif = expected - actual_mu
-        # perm_dif = torch.permute(real_dif, (0, 2, 3, 1))
-        # '''
-        # Note: I use bitmasks here to give orthonet the widest possible
-        # variety of input data
-        # However, this has the problem that for large kernel sizes,
-        # 2 ** (n * n - 1) is far too large, making them impractical.
-        # Instead, one can make the optimization that while querying,
-        # we generally only go top left to bottom right. Therefore, a lot of
-        # the bitmask states are useless and can be optimized to a polynomial
-        # amount of states with respect to the kernel size.
-        # '''
-        # batch_size = actual_mu.shape[0]
-        # # TODO might be a better way (since it's very similar to a convolution)
-        # # but for now this works, especially for the small kernel size
-        # mega_batch = torch.zeros((batch_size, t_pruning.shape[1], t_pruning.shape[2], rows, rows, 4),
-        #                          device=device)
-        # pivot = torch.zeros((batch_size, t_pruning.shape[1], t_pruning.shape[2], 2),
-        #                     device=device)
-        #
-        # filt = torch.rand((batch_size, t_pruning.shape[1], t_pruning.shape[2]), device=device) > 0.5
-        # index_choice = torch.rand(mega_batch.shape[0] * mega_batch.shape[1] * mega_batch.shape[2], device=device)
-        # index_choice = (index_choice * rows * rows).long()
-        #
-        # for i in range(rows):
-        #     for j in range(rows):
-        #         end_x = real_dif.shape[2] + i - (rows - 1)
-        #         end_y = real_dif.shape[3] + j - (rows - 1)
-        #         # hmmm doing [0, 2] isn't broadcasting correctly, which would otherwise require a transpose
-        #         mega_batch[:, :, :, i, j, 0] = real_dif[:, 0, i:end_x, j:end_y]
-        #         mega_batch[:, :, :, i, j, 2] = real_dif[:, 0, i:end_x, j:end_y]
-        #         mega_batch[:, :, :, i, j, 1] = real_dif[:, 1, i:end_x, j:end_y]
-        #         mega_batch[:, :, :, i, j, 3] = real_dif[:, 1, i:end_x, j:end_y]
-        #
-        #         mask = index_choice.view(mega_batch.shape[:3]) == rows * i + j
-        #         pivot[mask] = perm_dif[:, i:end_x, j:end_y, :][mask]
-        # mega_batch[:, :, :, :, :, [0, 1]][filt] = -1  # some special value to indicate that it's not collapsed
-        # mega_batch[:, :, :, :, :, [2, 3]][filt] = +1
-        #
-        # mega_batch = torch.flatten(mega_batch, 0, 2)
-        # mega_batch = torch.flatten(mega_batch, 1, 2)
-        # # final special value to indicate which value to search for
-        # mega_batch[torch.arange(len(mega_batch)), index_choice.long()] = torch.tensor([1., 1., -1., -1.], device=device)
-        # mega_batch = torch.flatten(mega_batch, 1, 2)
-        #
-        # pivot = torch.flatten(pivot, 0, 2)
-        #
-        # # [megabatch, 4]
-        # t_pruning = torch.flatten(t_pruning, 0, 2)
-        # results = ortho_net(t_pruning, mega_batch)
-        #
-        # greater = (pivot - results[:, :2]) >= 0
-        # less = (pivot - results[:, 2:]) <= 0
-        #
-        # full_in = torch.logical_and(greater, less)
-        # count_in = torch.sum( torch.all(full_in, dim=-1))
-        # p_in = count_in / len(results)
-        #
-        # widths = torch.sum(torch.abs(results[:, 2:] - results[:, :2]))
-        # lorris = self.lorris * widths  # sum of widths
-        #
-        # loss = lorris  # regularizer
-        # if p_in < self.c ** (1 / (actual_mu.shape[2] * actual_mu.shape[3])):
-        #     # Hammer on nodes outside
-        #     loss += torch.mean(torch.square(torch.relu(pivot - results[:, 2:]))) * self.hammer
-        #     loss += torch.mean(torch.square(torch.relu(results[:, :2] - pivot))) * self.hammer
-        #
-        # return loss
 
 
 class MagnitudeLoss(torch.nn.Module):

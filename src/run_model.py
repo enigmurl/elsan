@@ -3,18 +3,19 @@ import torch.nn as nn
 from torch.utils import data
 import numpy as np
 import time
-from model import CLES, LES
+from model import CLES, LES, con_list
 from penalty import DivergenceLoss, ErrorLoss
 from train import Dataset, train_epoch, eval_epoch, test_epoch
 from util import get_device
 from hammer_scheduler import HammerSchedule
+from statistics import NormalDist
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 device = get_device()
 
-train_direc = "../../data/data_64/sample_"
-test_direc = "../../data/data_64/sample_"
+train_direc = "../data/data_64/sample_"
+test_direc = "../data/data_64/sample_"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
 min_mse = 1
@@ -26,7 +27,6 @@ dropout_rate = 0
 kernel_size = 3
 batch_size = 64
 pruning_size = 36
-con_list = [-1, 0, 1, 3, 4]
 coef = 0
 
 train_indices = list(range(0, 6000))
