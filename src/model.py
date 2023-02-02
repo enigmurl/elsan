@@ -9,7 +9,7 @@ con_list = [-1,
             0,
             1,
             3,
-            NormalDist().inv_cdf(0.5 ** (1 / (64 * 64)))  # approximately 3.5839613878867564
+            NormalDist().inv_cdf(0.5 ** (1 / (2 * 64 * 64)))  # approximately 3.5839613878867564
             ]
 e_kernel = 5
 
@@ -80,14 +80,14 @@ def ran_sample(model, mu, pruning_error):
             query[:, 0::2, r, c] = converted_t
             query[:, 1::2, r, c] = converted_t
 
-    return query[:, :2] + mu
+    return query[:, :2]
 
 
 def contains_sample(model, mu, pruning_error, y_true):
     query = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
     query[:, :2] = -query[:, :2]
 
-    delta = y_true - mu
+    delta = y_true
 
     count = 0
 
@@ -140,6 +140,7 @@ def contains_sample(model, mu, pruning_error, y_true):
             query[:, 0::2, r, c] = delta[:, 0, r, c]
             query[:, 1::2, r, c] = delta[:, 1, r, c]
 
+    print("Count", count)
     return ret
 
 
