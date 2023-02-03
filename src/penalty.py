@@ -32,8 +32,9 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, drift=0.5):
         super(BigErrorLoss, self).__init__()
+        self.drift = drift
 
     def forward(self, ortho_nets, actual_pruning, expected, con_list, hammer):
         prev, mask = mask_tensor(expected.shape[-1])
@@ -70,6 +71,8 @@ class BigErrorLoss(torch.nn.Module):
             widths = torch.mean(torch.square(pred_max - pred_min))
 
             converted_c = NormalDist().cdf(c)
+
+            loss += self.drift * torch.mean(torch.square((pred_max + pred_min) / 2 - compare))
 
             if p_in < converted_c:
                 loss += hammer.hammer_loss(pred_min, compare, pred_max)
