@@ -174,9 +174,11 @@ class Orthocon(nn.Module):
         self.grid_rows = int(grid_elems ** 0.5)
 
         self.layer0 = conv(4, 12,
-                           kernel_size=3, stride=2, dropout_rate=dropout_rate, pad=False, norm=False)
-        self.layer1 = conv(12, 12,
-                           kernel_size=3, stride=2, dropout_rate=dropout_rate, pad=False, norm=False)
+                           kernel_size=5, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
+        self.layer01 = conv(12, 12,
+                            kernel_size=5, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
+        self.layer02 = conv(12, 12,
+                            kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
         self.layer2 = conv(12 + pruning_elems + 1, 16,
                            kernel_size=1, stride=1, dropout_rate=dropout_rate, norm=False)
         self.layer3 = conv(16, 12,
@@ -187,8 +189,8 @@ class Orthocon(nn.Module):
 
     def forward(self, prune, query, c):
         d0 = self.layer0(query)
-
-        d1 = self.layer1(d0)
+        d1 = self.layer01(d0)
+        d1 = self.layer02(d1)
         d1 = torch.cat((prune, d1), dim=1)
         d1 = torch.nn.functional.pad(d1, (0, 0, 0, 0, 1, 0), value=c)  # add a layer of c
 
