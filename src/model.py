@@ -168,6 +168,38 @@ def deconv(input_channels, output_channels):
     return layer
 
 
+class Orthonet(nn.Module):
+    def __init__(self, pruning_vector, kernel_size=3, dropout_rate=0):
+        super(Orthonet, self).__init__()
+
+        in_channels = pruning_vector + 4
+
+        self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
+
+        self.deconv3 = deconv(512, 256)
+        self.deconv2 = deconv(256, 128)
+        self.deconv1 = deconv(128, 64)
+        self.deconv0 = deconv(64, 32)
+
+        self.output_layer = nn.Conv2d(32 + in_channels, 4, kernel_size=kernel_size,
+                                      padding=(kernel_size - 1) // 2)
+
+    def forward(self, pruning, query):
+        # takes in a query and pruning, and outputs the necessary nodes everywhere
+        u = torch.concat((pruning, query), dim=-3)
+        out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
+
+        out_deconv3 = self.deconv3(out_conv4_mean)
+        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
+        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
+        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+
+        cat0 = torch.cat((u, out_deconv0), dim=-3)
+        out = self.output_layer(cat0)
+
+        return out
+
+
 class Orthocon(nn.Module):
     def __init__(self, grid_elems, pruning_elems, dropout_rate):
         super(Orthocon, self).__init__()
@@ -311,16 +343,17 @@ class CLES(nn.Module):
         self.e_deconv0 = deconv(64, 32)
         self.e_kernel = e_kernel
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
-                                        kernel_size=self.e_kernel,
-                                        padding=0)
+                                        kernel_size=kernel_size,
+                                        padding=(kernel_size - 1) // 2)
 
         seed = torch.seed()
         ortho_list = []
         for _ in range(orthos):
             torch.manual_seed(seed)
-            ortho_list.append(Orthocon(grid_elems=self.e_kernel * self.e_kernel,
-                                       pruning_elems=pruning_size,
-                                       dropout_rate=dropout_rate))
+            # ortho_list.append(Orthocon(grid_elems=self.e_kernel * self.e_kernel,
+            #                            pruning_elems=pruning_size,
+            #                            dropout_rate=dropout_rate))
+            ortho_list.append(Orthonet(pruning_size))
 
         self.ortho_cons = nn.ModuleList(ortho_list)
 

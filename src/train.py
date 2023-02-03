@@ -55,7 +55,7 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
             else:
                 loss += loss_function(im, y)
 
-            pval, l, dloss = e_loss_fun(orthonet, im, error, y, c_fun, hammer)
+            pval, l, dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
             e_loss += dloss
             p.append(pval.cpu().data.numpy())
             lorris.append(l.cpu().data.numpy())
@@ -104,7 +104,7 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                pval, l, dloss = e_loss_fun(orthonet, im, error, y, c_fun, hammer)
+                pval, l, dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
                 e_loss += dloss
                 p.append(pval.cpu().data.numpy())
                 lorris.append(l.cpu().data.numpy())

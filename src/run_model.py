@@ -4,7 +4,7 @@ from torch.utils import data
 import numpy as np
 import time
 from model import CLES, LES, con_list
-from penalty import DivergenceLoss, ErrorLoss
+from penalty import DivergenceLoss, BigErrorLoss
 from train import Dataset, train_epoch, eval_epoch, test_epoch
 from util import get_device
 from hammer_scheduler import HammerSchedule
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     valid_loader = data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
     loss_fun = torch.nn.MSELoss()
-    error_fun = ErrorLoss()
+    error_fun = BigErrorLoss()
     regularizer = DivergenceLoss(torch.nn.MSELoss())
     hammer = HammerSchedule(lorris=2e-1, lorris_buffer=1e-2, lorris_decay=2e-3,
                             hammer=1, hammer_buffer=5e-2, hammer_decay=2e-3)
