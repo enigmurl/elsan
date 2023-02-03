@@ -186,7 +186,7 @@ class Orthonet(nn.Module):
 
     def forward(self, pruning, query):
         # takes in a query and pruning, and outputs the necessary nodes everywhere
-        u = torch.concat((pruning, query), dim=-3)
+        u = torch.cat((pruning, query), dim=-3)
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
