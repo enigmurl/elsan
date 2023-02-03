@@ -60,8 +60,8 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
             p.append(pval.cpu().data.numpy())
             lorris.append(l.cpu().data.numpy())
 
-            pad = (xx.shape[-1] - error.shape[-1]) // 2
-            error = torch.nn.functional.pad(error, (pad, pad, pad, pad)).detach()  # should not affect future results
+            # pad = (xx.shape[-1] - error.shape[-1]) // 2
+            # error = torch.nn.functional.pad(error, (pad, pad, pad, pad)).detach()  # should not affect future results
         # ims.append(im.cpu().data.numpy())
 
         full_loss = loss + e_loss
@@ -109,8 +109,8 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
                 p.append(pval.cpu().data.numpy())
                 lorris.append(l.cpu().data.numpy())
 
-                pad = (xx.shape[-1] - error.shape[-1]) // 2
-                error = torch.nn.functional.pad(error, (pad, pad, pad, pad))
+                # pad = (xx.shape[-1] - error.shape[-1]) // 2
+                # error = torch.nn.functional.pad(error, (pad, pad, pad, pad))
 
             # ims = np.array(ims).transpose((1, 0, 2, 3, 4))
             # preds.append(ims)
