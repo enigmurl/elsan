@@ -7,11 +7,9 @@ device = get_device()
 
 con_list = [-1,
             0,
-            1,
-            3,
-            NormalDist().inv_cdf(0.5 ** (1 / (2 * 64 * 64)))  # approximately 3.5839613878867564
+            1,  # we'll add the other ones later
             ]
-e_kernel = 5
+e_kernel = 11
 
 
 def _orthocon_sample_t(model, prune, query, rand):
@@ -42,7 +40,6 @@ def _orthocon_sample_t(model, prune, query, rand):
                     break
 
             arr.append(float(res))
-
         ret.append(arr)
 
     return torch.tensor(ret)
@@ -63,8 +60,8 @@ def ran_sample(model, mu, pruning_error):
                                              pruning_error[:, :, r:r+1, cp:cp+1],
                                              query[:, :, :e_kernel, cp:cp + e_kernel],
                                              rand[:, :, r, c])
-            query[:, 0::2, r, c] = converted_t
-            query[:, 1::2, r, c] = converted_t
+            query[:, :2, r, c] = converted_t
+            query[:, 2:, r, c] = converted_t
 
     for r in range(e_kernel, mu.shape[-2]):
         for c in range(mu.shape[-1]):
@@ -77,8 +74,8 @@ def ran_sample(model, mu, pruning_error):
                                              pruning_error[:, :, rp:rp+1, cp:cp+1],
                                              query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
                                              rand[:, :, r, c])
-            query[:, 0::2, r, c] = converted_t
-            query[:, 1::2, r, c] = converted_t
+            query[:, :2, r, c] = converted_t
+            query[:, 2:, r, c] = converted_t
 
     return query[:, :2]
 
@@ -177,9 +174,9 @@ class Orthocon(nn.Module):
         self.grid_rows = int(grid_elems ** 0.5)
 
         self.layer0 = conv(4, 12,
-                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
+                           kernel_size=3, stride=2, dropout_rate=dropout_rate, pad=False, norm=False)
         self.layer1 = conv(12, 12,
-                           kernel_size=3, stride=1, dropout_rate=dropout_rate, pad=False, norm=False)
+                           kernel_size=3, stride=2, dropout_rate=dropout_rate, pad=False, norm=False)
         self.layer2 = conv(12 + pruning_elems + 1, 16,
                            kernel_size=1, stride=1, dropout_rate=dropout_rate, norm=False)
         self.layer3 = conv(16, 12,

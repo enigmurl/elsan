@@ -28,7 +28,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        )
 
 
-def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=8):
+def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
     rects = [
@@ -58,7 +58,7 @@ class VisualizeSigma(Scene):
         model = CLES(input_channels=25 * 2, output_channels=2, kernel_size=3,
                      dropout_rate=0, time_range=6, pruning_size=36,
                      orthos=len(con_list))
-        for param, src in zip(model.parameters(), torch.load('model_state.pt')):
+        for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
             param.data = src.data
         return model.to(device)
 
