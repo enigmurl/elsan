@@ -62,7 +62,7 @@ def ran_sample(model, mu, pruning_error):
         # compute query
         query[mask4] = -query[mask4]
 
-        predicted = model.ortho_cons[-1](pruning_error, query)
+        predicted = model.ortho_cons[0](pruning_error, query)
         delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64)) + predicted[:, :2]
         query[:, :2][mask2] = delta[mask2]
         query[:, 2:][mask2] = delta[mask2]
@@ -202,7 +202,7 @@ class Orthonet(nn.Module):
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + in_channels, 4, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + 4, 4, kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -215,7 +215,7 @@ class Orthonet(nn.Module):
         out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        cat0 = torch.cat((u, out_deconv0), dim=-3)
+        cat0 = torch.cat((query, out_deconv0), dim=-3)
         out = self.output_layer(cat0)
 
         return out
@@ -365,6 +365,7 @@ class CLES(nn.Module):
         self.e_kernel = e_kernel
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=kernel_size,
+                                        stride=1,
                                         padding=(kernel_size - 1) // 2)
 
         seed = torch.seed()

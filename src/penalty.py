@@ -41,11 +41,11 @@ class BigErrorLoss(torch.nn.Module):
         loss = 0
 
         for ortho, c in zip(ortho_nets, con_list):
-            # batch_masks = (torch.rand(len(expected)) * len(prev)).long()
+            batch_masks = (torch.rand(len(expected)) * len(prev)).long()
 
-            # real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
-            real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
-            real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
+            real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
+            # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
+            # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
             real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
             mask2 = torch.tile(real_mask, (2, 1, 1))
             mask4 = torch.tile(real_mask, (4, 1, 1))
