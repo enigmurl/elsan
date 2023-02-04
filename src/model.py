@@ -46,8 +46,8 @@ def _orthocon_sample_t(model, prune, query, rand):
 
 
 def ran_sample(model, mu, pruning_error):
-    rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=device)
-    query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
+    rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=mu.device)
+    query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
     query[:, :2] = -query[:, :2]
 
     masks = mask_tensor(64)
@@ -62,8 +62,9 @@ def ran_sample(model, mu, pruning_error):
         # compute query
         query[mask4] = -query[mask4]
 
-        predicted = model.ortho_cons[0](pruning_error, query)
-        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64)) + predicted[:, :2]
+        predicted = model.ortho_cons[-1](pruning_error, query)
+        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64), device=mu.device) \
+            + predicted[:, :2]
         query[:, :2][mask2] = delta[mask2]
         query[:, 2:][mask2] = delta[mask2]
 
@@ -109,7 +110,7 @@ def contains_sample(model, mu, pruning_error, y_true):
 
     count = 0
 
-    ret = torch.full((mu.shape[0], ), 1, dtype=torch.uint8, device=device)
+    ret = torch.full((mu.shape[0],), 1, dtype=torch.uint8, device=device)
     for c in range(mu.shape[-1]):
         for r in range(model.e_kernel):
             query[:, :2, r, c] = 1
@@ -117,14 +118,14 @@ def contains_sample(model, mu, pruning_error, y_true):
             cp = max(0, c - e_kernel + 1)
             rp = max(0, r - e_kernel + 1)
 
-            ranges = model.ortho_cons[-1](pruning_error[:, :, rp:rp+1, cp:cp+1],
+            ranges = model.ortho_cons[-1](pruning_error[:, :, rp:rp + 1, cp:cp + 1],
                                           query[:, :, :e_kernel, cp:cp + e_kernel],
                                           con_list[-1])
 
             x = torch.squeeze(torch.logical_and(delta[:, 0, r, c] >= ranges[:, 0],
-                              delta[:, 0, r, c] <= ranges[:, 2]))  # x
+                                                delta[:, 0, r, c] <= ranges[:, 2]))  # x
             y = torch.squeeze(torch.logical_and(delta[:, 1, r, c] >= ranges[:, 1],
-                              delta[:, 1, r, c] <= ranges[:, 3]))  # y
+                                                delta[:, 1, r, c] <= ranges[:, 3]))  # y
             if x and y:
                 count += 1
 
@@ -202,7 +203,7 @@ class Orthonet(nn.Module):
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + 4, 4, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + in_channels, 4, kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -215,7 +216,7 @@ class Orthonet(nn.Module):
         out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        cat0 = torch.cat((query, out_deconv0), dim=-3)
+        cat0 = torch.cat((u, out_deconv0), dim=-3)
         out = self.output_layer(cat0)
 
         return out
@@ -365,8 +366,8 @@ class CLES(nn.Module):
         self.e_kernel = e_kernel
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=kernel_size,
-                                        stride=1,
                                         padding=(kernel_size - 1) // 2)
+        self.dropout = nn.Dropout()
 
         seed = torch.seed()
         ortho_list = []
@@ -416,7 +417,6 @@ class CLES(nn.Module):
         out_deconv1 = self.e_deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_conv2_error + out_deconv2)
         out_deconv0 = self.e_deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_conv1_error + out_deconv1)
         cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
-        error_out = self.e_output_layer(cat0)
+        error_out = self.dropout(self.e_output_layer(cat0))
 
         return out, error_out
-
