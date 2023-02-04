@@ -119,16 +119,23 @@ class VisualizeSigma(Scene):
                 contained = contains_sample(model, im, prev_error,
                                             frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
                 samp = ran_sample(model, im, prev_error).cpu().data.numpy()
-                im = im.cpu().data.numpy()
                 print("Step model ", contained)
             else:
-                return
+                samp = ran_sample(model, im, prev_error).cpu().data.numpy()
+
+                sx = samp[0, 0]
+                sy = samp[0, 1]
+
+                xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
 
             tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
             ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
 
-            mx = im[0, 0]
-            my = im[0, 1]
+            real_im = im.cpu().data.numpy()
+            mx = real_im[0, 0]
+            my = real_im[0, 1]
 
             sx = samp[0, 0]
             sy = samp[0, 1]

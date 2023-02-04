@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from statistics import *
-from util import get_device
+from util import get_device, mask_tensor
 
 device = get_device()
 
@@ -16,7 +16,7 @@ def _orthocon_sample_t(model, prune, query, rand):
     rights = []
     lefts = []
     for ortho, c in zip(model.ortho_cons, con_list):
-        data = torch.flatten(ortho(prune, query, c), 1)
+        data = torch.flatten(ortho(prune, query), 1)
         cprime = NormalDist().cdf(c)
         rights.append((0.5 + cprime / 2, data[:, 2:]))
         lefts.append((0.5 - cprime / 2, data[:, :2]))
@@ -47,40 +47,61 @@ def _orthocon_sample_t(model, prune, query, rand):
 
 def ran_sample(model, mu, pruning_error):
     rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=device)
-    query = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
+    query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
     query[:, :2] = -query[:, :2]
 
-    # seed column
-    for c in range(mu.shape[-1]):
-        for r in range(e_kernel):
-            query[:, :2, r, c] = 1
-            query[:, 2:, r, c] = -1
-            cp = max(0, c - e_kernel + 1)
-            converted_t = _orthocon_sample_t(model,
-                                             pruning_error[:, :, r:r+1, cp:cp+1],
-                                             query[:, :, :e_kernel, cp:cp + e_kernel],
-                                             rand[:, :, r, c])
-            query[:, :2, r, c] = converted_t
-            query[:, 2:, r, c] = converted_t
+    masks = mask_tensor(64)
+    masks = torch.unsqueeze(masks[0], 0), torch.unsqueeze(masks[1], 0)
 
-    for r in range(e_kernel, mu.shape[-2]):
-        for c in range(mu.shape[-1]):
-            query[:, :2, r, c] = 1
-            query[:, 2:, r, c] = -1
-            cp = max(0, c - e_kernel + 1)
-            rp = max(0, r - e_kernel + 1)
+    for i in range(masks[0].shape[1]):
+        m = masks[1][:, i]
+        real_mask = torch.unsqueeze(m, 0)
+        mask2 = torch.tile(real_mask, (2, 1, 1))
+        mask4 = torch.tile(real_mask, (4, 1, 1))
 
-            converted_t = _orthocon_sample_t(model,
-                                             pruning_error[:, :, rp:rp+1, cp:cp+1],
-                                             query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
-                                             rand[:, :, r, c])
-            query[:, :2, r, c] = converted_t
-            query[:, 2:, r, c] = converted_t
+        # compute query
+        query[mask4] = -query[mask4]
+
+        predicted = model.ortho_cons[-1](pruning_error, query)
+        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64)) + predicted[:, :2]
+        query[:, :2][mask2] = delta[mask2]
+        query[:, 2:][mask2] = delta[mask2]
 
     return query[:, :2]
 
+    # # seed column
+    # for c in range(mu.shape[-1]):
+    #     for r in range(e_kernel):
+    #         query[:, :2, r, c] = 1
+    #         query[:, 2:, r, c] = -1
+    #         cp = max(0, c - e_kernel + 1)
+    #         converted_t = _orthocon_sample_t(model,
+    #                                          pruning_error[:, :, r:r+1, cp:cp+1],
+    #                                          query[:, :, :e_kernel, cp:cp + e_kernel],
+    #                                          rand[:, :, r, c])
+    #         query[:, :2, r, c] = converted_t
+    #         query[:, 2:, r, c] = converted_t
+    #
+    # for r in range(e_kernel, mu.shape[-2]):
+    #     for c in range(mu.shape[-1]):
+    #         query[:, :2, r, c] = 1
+    #         query[:, 2:, r, c] = -1
+    #         cp = max(0, c - e_kernel + 1)
+    #         rp = max(0, r - e_kernel + 1)
+    #
+    #         converted_t = _orthocon_sample_t(model,
+    #                                          pruning_error[:, :, rp:rp+1, cp:cp+1],
+    #                                          query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
+    #                                          rand[:, :, r, c])
+    #         query[:, :2, r, c] = converted_t
+    #         query[:, 2:, r, c] = converted_t
+    #
+    # return query[:, :2]
+
 
 def contains_sample(model, mu, pruning_error, y_true):
+    return False
+
     query = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=device)
     query[:, :2] = -query[:, :2]
 
