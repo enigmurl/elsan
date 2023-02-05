@@ -19,9 +19,9 @@ def _recurse(mask, level, rmin, rmax, cmin, cmax):
 
     m = level
     m = max(m, _recurse(mask, level + 1, rmin, r, cmin, c - 1))
-    m = max(m, _recurse(mask, level + 1, r + 1, rmax, cmin, c))
+    m = max(m, _recurse(mask, level + 2, r + 1, rmax, cmin, c))
     m = max(m, _recurse(mask, level + 1, r, rmax, c + 1, cmax))
-    m = max(m, _recurse(mask, level + 1, rmin, r - 1, c, cmax))
+    m = max(m, _recurse(mask, level + 2, rmin, r - 1, c, cmax))
 
     return m
 
@@ -30,14 +30,14 @@ def _recurse(mask, level, rmin, rmax, cmin, cmax):
 def mask_tensor(n):
     device = get_device()
 
-    channels = int(torch.log2(torch.tensor([n * n]))) + 1
+    channels = int(torch.log2(torch.tensor([n]))) * 4
     mask = torch.zeros((channels, n, n), dtype=torch.uint8, device=device).bool()
     prev = torch.zeros((channels, n, n), dtype=torch.uint8, device=device).bool()
     # 4 then 16 then 64, then ...
 
-    levels = _recurse(mask, 0, 0, n // 2 - 1, 0, n // 2 - 1)
-    _recurse(mask, 0, n // 2, n - 1, 0, n // 2 - 1)
-    _recurse(mask, 0, 0, n // 2 - 1, n // 2, n - 1)
+    _recurse(mask, 0, 0, n // 2 - 1, 0, n // 2 - 1)
+    levels = _recurse(mask, 1, n // 2, n - 1, 0, n // 2 - 1)
+    _recurse(mask, 1, 0, n // 2 - 1, n // 2, n - 1)
     _recurse(mask, 0, n // 2, n - 1, n // 2, n - 1)
 
     for i in range(1, levels + 1):

@@ -56,7 +56,7 @@ class VisualizeSigma(Scene):
 
     def model(self):
         model = CLES(input_channels=25 * 2, output_channels=2, kernel_size=3,
-                     dropout_rate=0, time_range=6, pruning_size=1,
+                     dropout_rate=0, time_range=6, pruning_size=2,
                      orthos=len(con_list))
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
             param.data = src.data
@@ -96,7 +96,7 @@ class VisualizeSigma(Scene):
         t = 0
         fnum = -1
         xx = frames[:, :TOFFSET * 2].to(device)
-        prev_error = torch.zeros((1, 1, frames.shape[-2], frames.shape[-1]), device=device)
+        prev_error = torch.zeros((1, 2, frames.shape[-2], frames.shape[-1]), device=device)
         im, prev_error = model(xx, prev_error)
         xx = torch.cat([xx[:, 2:], im], 1)
         samp = ran_sample(model, im, prev_error).cpu().data.numpy()
