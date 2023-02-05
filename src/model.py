@@ -70,35 +70,6 @@ def ran_sample(model, mu, pruning_error):
 
     return query[:, :2]
 
-    # # seed column
-    # for c in range(mu.shape[-1]):
-    #     for r in range(e_kernel):
-    #         query[:, :2, r, c] = 1
-    #         query[:, 2:, r, c] = -1
-    #         cp = max(0, c - e_kernel + 1)
-    #         converted_t = _orthocon_sample_t(model,
-    #                                          pruning_error[:, :, r:r+1, cp:cp+1],
-    #                                          query[:, :, :e_kernel, cp:cp + e_kernel],
-    #                                          rand[:, :, r, c])
-    #         query[:, :2, r, c] = converted_t
-    #         query[:, 2:, r, c] = converted_t
-    #
-    # for r in range(e_kernel, mu.shape[-2]):
-    #     for c in range(mu.shape[-1]):
-    #         query[:, :2, r, c] = 1
-    #         query[:, 2:, r, c] = -1
-    #         cp = max(0, c - e_kernel + 1)
-    #         rp = max(0, r - e_kernel + 1)
-    #
-    #         converted_t = _orthocon_sample_t(model,
-    #                                          pruning_error[:, :, rp:rp+1, cp:cp+1],
-    #                                          query[:, :, rp:rp + e_kernel, cp:cp + e_kernel],
-    #                                          rand[:, :, r, c])
-    #         query[:, :2, r, c] = converted_t
-    #         query[:, 2:, r, c] = converted_t
-    #
-    # return query[:, :2]
-
 
 def contains_sample(model, mu, pruning_error, y_true):
     return False
@@ -367,7 +338,7 @@ class CLES(nn.Module):
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=kernel_size,
                                         padding=(kernel_size - 1) // 2)
-        self.dropout = nn.Dropout(p=0.8)
+        self.dropout = nn.Dropout(p=0.25)
 
         seed = torch.seed()
         ortho_list = []
