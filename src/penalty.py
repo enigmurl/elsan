@@ -32,7 +32,7 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, drift=0.5):
+    def __init__(self, drift=0.05):
         super(BigErrorLoss, self).__init__()
         self.drift = drift
 

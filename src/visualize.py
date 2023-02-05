@@ -186,11 +186,13 @@ class VisualizeSigma(Scene):
 
             # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
-        root.add_updater(root_decomp)
         self.add(root)
 
-        self.wait(2.5)
+        # root.add_updater(update)
         # self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+
+        root.add_updater(root_decomp)
+        self.wait(2.5)
 
 
 

@@ -50,7 +50,7 @@ if __name__ == '__main__':
     error_fun = BigErrorLoss()
     regularizer = DivergenceLoss(torch.nn.MSELoss())
     hammer = HammerSchedule(lorris=1e-2, lorris_buffer=1e-3, lorris_decay=2e-3,
-                            hammer=1e-1, hammer_buffer=5e-3, hammer_decay=2e-3)
+                            hammer=0e-1, hammer_buffer=5e-3, hammer_decay=2e-3)
 
     optimizer = torch.optim.Adam(model.parameters(), learning_rate, betas=(0.9, 0.999), weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)

@@ -65,6 +65,7 @@ def ran_sample(model, mu, pruning_error):
         predicted = model.ortho_cons[-1](pruning_error, query)
         delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64), device=mu.device) \
             + predicted[:, :2]
+
         query[:, :2][mask2] = delta[mask2]
         query[:, 2:][mask2] = delta[mask2]
 
@@ -89,7 +90,7 @@ def contains_sample(model, mu, pruning_error, y_true):
             cp = max(0, c - e_kernel + 1)
             rp = max(0, r - e_kernel + 1)
 
-            ranges = model.ortho_cons[-1](pruning_error[:, :, rp:rp + 1, cp:cp + 1],
+            ranges = model.ortho_cons[0](pruning_error[:, :, rp:rp + 1, cp:cp + 1],
                                           query[:, :, :e_kernel, cp:cp + e_kernel],
                                           con_list[-1])
 
@@ -165,7 +166,7 @@ class Orthonet(nn.Module):
     def __init__(self, pruning_vector, kernel_size=3, dropout_rate=0):
         super(Orthonet, self).__init__()
 
-        in_channels = 4  # +  pruning_vector
+        in_channels = 4 +  pruning_vector
 
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
@@ -179,8 +180,8 @@ class Orthonet(nn.Module):
 
     def forward(self, pruning, query):
         # takes in a query and pruning, and outputs the necessary nodes everywhere
-        # u = torch.cat((pruning, query), dim=-3)
-        u = query
+        u = torch.cat((pruning, query), dim=-3)
+        # u = query
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
@@ -339,7 +340,6 @@ class CLES(nn.Module):
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=kernel_size,
                                         padding=(kernel_size - 1) // 2)
-        self.dropout = nn.Dropout(p=0.25)
 
         seed = torch.seed()
         ortho_list = []
@@ -389,6 +389,6 @@ class CLES(nn.Module):
         out_deconv1 = self.e_deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_conv2_error + out_deconv2)
         out_deconv0 = self.e_deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_conv1_error + out_deconv1)
         cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
-        error_out = self.dropout(self.e_output_layer(cat0))
+        error_out = self.e_output_layer(cat0)
 
         return out, error_out
