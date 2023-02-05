@@ -367,7 +367,7 @@ class CLES(nn.Module):
         self.e_output_layer = nn.Conv2d(32 + input_channels, pruning_size,
                                         kernel_size=kernel_size,
                                         padding=(kernel_size - 1) // 2)
-        self.dropout = nn.Dropout()
+        self.dropout = nn.Dropout(p=0.75)
 
         seed = torch.seed()
         ortho_list = []
