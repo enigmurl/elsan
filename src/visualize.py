@@ -1,3 +1,4 @@
+import numpy as np
 from manimlib import *
 import torch
 import sys
@@ -95,6 +96,7 @@ class VisualizeSigma(Scene):
 
         t = 0
         fnum = -1
+        raw_frame = 0
         xx = frames[:, :TOFFSET * 2].to(device)
         prev_error = torch.zeros((1, 2, frames.shape[-2], frames.shape[-1]), device=device)
         im, prev_error = model(xx, prev_error)
@@ -102,9 +104,12 @@ class VisualizeSigma(Scene):
         samp = ran_sample(model, im, prev_error).cpu().data.numpy()
         im = im.cpu().data.numpy()
 
+        pm, mask = mask_tensor(64)
+
         def update(m, dt):
-            nonlocal t, fnum, xx, im, prev_error, samp
+            nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
             t += dt
+            raw_frame = int(t / (1 / 30))
             prev = fnum
             fnum = int(t / FRAME_DT)
 
@@ -129,6 +134,7 @@ class VisualizeSigma(Scene):
                 xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
                 ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
                 s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                return
 
             tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
             ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
@@ -139,6 +145,12 @@ class VisualizeSigma(Scene):
 
             sx = samp[0, 0]
             sy = samp[0, 1]
+
+            print("mine rmse", fnum,
+                  np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+            print("tfnt rmse", fnum,
+                  np.sqrt(np.mean(np.square(
+                      real_im[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
 
             xt_frame.become(frame("x true", tx, ORIGIN)).shift(2 * LEFT + 2.5 * UP)
             yt_frame.become(frame("y true", ty, ORIGIN)).shift(2.5 * UP)
@@ -154,10 +166,31 @@ class VisualizeSigma(Scene):
 
             # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
-        root.add_updater(update)
+        def root_decomp(m, dt):
+            nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
+            t += dt
+            raw_frame = int(t / (1 / 30))
+            prev = fnum
+            fnum = int(t / FRAME_DT)
+
+            sx = samp[0, 0].copy()
+            sy = samp[0, 1].copy()
+
+            if raw_frame < 64:
+                sx[~pm[raw_frame]] = -5
+                sy[~pm[raw_frame]] = -5
+
+            xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+            ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+            s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+
+            # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
+
+        root.add_updater(root_decomp)
         self.add(root)
 
-        self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+        self.wait(2.5)
+        # self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
 
 
 

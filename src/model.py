@@ -165,7 +165,7 @@ class Orthonet(nn.Module):
     def __init__(self, pruning_vector, kernel_size=3, dropout_rate=0):
         super(Orthonet, self).__init__()
 
-        in_channels = pruning_vector + 4
+        in_channels = 4  # +  pruning_vector
 
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
@@ -179,7 +179,8 @@ class Orthonet(nn.Module):
 
     def forward(self, pruning, query):
         # takes in a query and pruning, and outputs the necessary nodes everywhere
-        u = torch.cat((pruning, query), dim=-3)
+        # u = torch.cat((pruning, query), dim=-3)
+        u = query
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
