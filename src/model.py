@@ -69,10 +69,10 @@ def ran_sample(model, mu, pruning_error, true):
         delta = (predicted[:, 2:] - predicted[:, :2]) * torch.full((mu.shape[0], 2, 64, 64), 0.5, device=mu.device) \
             + predicted[:, :2]
 
-        query[:, :2][mask2] = delta[mask2]
-        query[:, 2:][mask2] = delta[mask2]
-        output[:, :2][mask2] = delta[mask2]
-        output[:, 2:][mask2] = delta[mask2]
+        query[:, :2][mask2] = delta  # [mask2]
+        query[:, 2:][mask2] = delta  # [mask2]
+        output[:, :2][mask2] = delta  # [mask2]
+        output[:, 2:][mask2] = delta  # [mask2]
 
     return output[:, :2]
 
@@ -197,7 +197,7 @@ class Orthonet(nn.Module):
         # cat0 = torch.cat((u, out_deconv0), dim=-3)
         # out = self.output_layer(cat0)
         out = self.output_layer(out_deconv3)
-        
+
         return out
 
 
