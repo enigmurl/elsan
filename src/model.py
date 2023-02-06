@@ -194,8 +194,7 @@ class Orthonet(nn.Module):
         # out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
         # out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        # cat0 = torch.cat((u, out_deconv0), dim=-3)
-        # out = self.output_layer(cat0)
+        # cat0 = torch.cat((u, out_deconv), dim=-3)
         out = self.output_layer(out_deconv3)
 
         return out

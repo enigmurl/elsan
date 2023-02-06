@@ -39,7 +39,6 @@ class BigErrorLoss(torch.nn.Module):
     def forward(self, ortho_nets, actual_pruning, expected, con_list, hammer):
         prev, mask = mask_tensor(expected.shape[-1])
         loss = 0
-
         for ortho, c in zip(ortho_nets, con_list):
             batch_masks = (torch.rand(len(expected)) * len(prev)).long()
 
@@ -59,8 +58,8 @@ class BigErrorLoss(torch.nn.Module):
 
             predicted = ortho(actual_pruning, query)
 
-            pred_min = torch.flatten(predicted[:, :2])
-            pred_max = torch.flatten(predicted[:, 2:])
+            pred_min = torch.flatten(predicted[:, :2])  # [mask2]
+            pred_max = torch.flatten(predicted[:, 2:])  # [mask2]
             compare = expected[mask2]
 
             greater = compare >= pred_min
@@ -96,7 +95,6 @@ class BigErrorLoss(torch.nn.Module):
         return p_in, torch.sqrt(widths), loss
 
 
-'''
 class ErrorLoss(torch.nn.Module):
     def __init__(self):
         super(ErrorLoss, self).__init__()
@@ -176,7 +174,7 @@ class ErrorLoss(torch.nn.Module):
         loss /= len(ortho_nets)
 
         return p_in, torch.sqrt(widths), loss
-'''
+
 
 class MagnitudeLoss(torch.nn.Module):
     def __init__(self, loss):

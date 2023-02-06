@@ -32,6 +32,7 @@ def _mod(a, b):
     return ret + b if ret < 0 else ret
 
 
+@cache
 def _max_index(tensor):
     best = np.random.randint(0, tensor.shape[0]), np.random.randint(0, tensor.shape[1])
     wd = 0
@@ -55,8 +56,8 @@ def _max_index(tensor):
 def mask_tensor(n):
     device = get_device()
 
-    mask = torch.zeros((n, n, n), dtype=torch.uint8, device=device).bool()
-    prev = torch.zeros((n, n, n), dtype=torch.uint8, device=device).bool()
+    mask = torch.zeros((n, n, n), dtype=torch.uint8).bool()
+    prev = torch.zeros((n, n, n), dtype=torch.uint8).bool()
     # 4 then 16 then 64, then ...
 
     block = int(n ** 0.5)
@@ -73,7 +74,7 @@ def mask_tensor(n):
     # _recurse(mask, 1, 0, n // 2 - 1, n // 2, n - 1)
     # _recurse(mask, 0, n // 2, n - 1, n // 2, n - 1)
 
-    return prev.detach(), mask.detach()
+    return prev.to(device).detach(), mask.to(device).detach()
 
 
 if __name__ == '__main__':
