@@ -54,12 +54,13 @@ class BigErrorLoss(torch.nn.Module):
             query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
             query[:, 2:] = 5
             query[:, :2][real_prev] = expected[real_prev]
+            query[:, 2:][real_prev] = expected[real_prev]
             query[mask4] = -query[mask4]
 
             predicted = ortho(actual_pruning, query)
 
-            pred_min = predicted[:, :2]
-            pred_max = predicted[:, 2:]
+            pred_min = torch.flatten(predicted[:, :2])
+            pred_max = torch.flatten(predicted[:, 2:])
             compare = expected[mask2]
 
             greater = compare >= pred_min
@@ -82,8 +83,8 @@ class BigErrorLoss(torch.nn.Module):
                       f"compare {converted_c:.4f} "
                       f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
                       f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f}"
-                      f"drift{loss / self.drift:.4f}")
+                      f"width {float(torch.sqrt(widths).cpu().data):.4f} "
+                      f"drift {loss / self.drift:.4f}")
             else:
                 loss += hammer.lorris_loss(pred_min, compare, pred_max)
                 print(f"Yes contained {float(p_in.cpu().data):.4f} "
@@ -95,6 +96,7 @@ class BigErrorLoss(torch.nn.Module):
         return p_in, torch.sqrt(widths), loss
 
 
+'''
 class ErrorLoss(torch.nn.Module):
     def __init__(self):
         super(ErrorLoss, self).__init__()
@@ -174,7 +176,7 @@ class ErrorLoss(torch.nn.Module):
         loss /= len(ortho_nets)
 
         return p_in, torch.sqrt(widths), loss
-
+'''
 
 class MagnitudeLoss(torch.nn.Module):
     def __init__(self, loss):
