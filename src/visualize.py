@@ -21,11 +21,11 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
     r = vx.shape[0]
     c = vx.shape[1]
 
-    return VectorField(lambda x, y: np.array([vx[int((y + 0.8) / 1.6 * r), int((x + 0.5) / 1.6 * c)],
-                                              vy[int((y + 0.8) / 1.6 * r), int((x + 0.5) / 1.6 * c)]]),
+    return VectorField(lambda x, y: np.array([vx[int((y + 0.8) / 1.6 * r), int((x + 0.8) / 1.6 * c)],
+                                              vy[int((y + 0.8) / 1.6 * r), int((x + 0.8) / 1.6 * c)]]),
                        axis,
-                       step_multiple=0.2,
-                       length_func=lambda norm: 0.25 * sigmoid(norm)
+                       step_multiple=0.1,
+                       length_func=lambda norm: 0.125 * sigmoid(norm)
                        )
 
 
@@ -101,7 +101,8 @@ class VisualizeSigma(Scene):
         prev_error = torch.zeros((1, 2, frames.shape[-2], frames.shape[-1]), device=device)
         im, prev_error = model(xx, prev_error)
         xx = torch.cat([xx[:, 2:], im], 1)
-        samp = ran_sample(model, im, prev_error).cpu().data.numpy()
+        samp = ran_sample(model, im, prev_error,
+                          frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
         im = im.cpu().data.numpy()
 
         pm, mask = mask_tensor(64)
@@ -123,10 +124,10 @@ class VisualizeSigma(Scene):
                 xx = torch.cat([xx[:, 2:], im], 1)
                 contained = contains_sample(model, im, prev_error,
                                             frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
-                samp = ran_sample(model, im, prev_error).cpu().data.numpy()
+                samp = ran_sample(model, im, prev_error, frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
                 print("Step model ", contained)
             else:
-                samp = ran_sample(model, im, prev_error).cpu().data.numpy()
+                samp = ran_sample(model, im, prev_error, frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
 
                 sx = samp[0, 0]
                 sy = samp[0, 1]
@@ -188,11 +189,11 @@ class VisualizeSigma(Scene):
 
         self.add(root)
 
-        # root.add_updater(update)
-        # self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+        root.add_updater(update)
+        self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
 
-        root.add_updater(root_decomp)
-        self.wait(2.5)
+        # root.add_updater(root_decomp)
+        # self.wait(2.5)
 
 
 

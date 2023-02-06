@@ -82,7 +82,8 @@ class BigErrorLoss(torch.nn.Module):
                       f"compare {converted_c:.4f} "
                       f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
                       f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
+                      f"width {float(torch.sqrt(widths).cpu().data):.4f}"
+                      f"drift{loss / self.drift:.4f}")
             else:
                 loss += hammer.lorris_loss(pred_min, compare, pred_max)
                 print(f"Yes contained {float(p_in.cpu().data):.4f} "

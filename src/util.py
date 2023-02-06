@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from functools import cache
 
 
@@ -32,7 +33,7 @@ def _mod(a, b):
 
 
 def _max_index(tensor):
-    best = 0, 0
+    best = np.random.randint(0, tensor.shape[0]), np.random.randint(0, tensor.shape[1])
     wd = 0
     for r in range(tensor.shape[0]):
         for c in range(tensor.shape[1]):
@@ -50,7 +51,7 @@ def _max_index(tensor):
 
     return best
 
-@cache
+
 def mask_tensor(n):
     device = get_device()
 

@@ -45,16 +45,19 @@ def _orthocon_sample_t(model, prune, query, rand):
     return torch.tensor(ret)
 
 
-def ran_sample(model, mu, pruning_error):
+def ran_sample(model, mu, pruning_error, true):
     rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=mu.device)
     query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
     query[:, :2] = -query[:, :2]
 
-    masks = mask_tensor(64)
-    masks = torch.unsqueeze(masks[0], 0), torch.unsqueeze(masks[1], 0)
+    output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
 
-    for i in range(masks[0].shape[1]):
-        m = masks[1][:, i]
+    true = torch.unsqueeze(true, dim=0).to(mu.device)
+    masks = mask_tensor(64)
+    prevs, masks = torch.unsqueeze(masks[0], 0), torch.unsqueeze(masks[1], 0)
+
+    for i in range(masks.shape[1]):
+        m = masks[:, i]
         real_mask = torch.unsqueeze(m, 0)
         mask2 = torch.tile(real_mask, (2, 1, 1))
         mask4 = torch.tile(real_mask, (4, 1, 1))
@@ -63,13 +66,15 @@ def ran_sample(model, mu, pruning_error):
         query[mask4] = -query[mask4]
 
         predicted = model.ortho_cons[-1](pruning_error, query)
-        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.rand((mu.shape[0], 2, 64, 64), device=mu.device) \
+        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.full((mu.shape[0], 2, 64, 64), 0.5, device=mu.device) \
             + predicted[:, :2]
 
         query[:, :2][mask2] = delta[mask2]
         query[:, 2:][mask2] = delta[mask2]
+        output[:, :2][mask2] = delta[mask2]
+        output[:, 2:][mask2] = delta[mask2]
 
-    return query[:, :2]
+    return output[:, :2]
 
 
 def contains_sample(model, mu, pruning_error, y_true):
@@ -166,16 +171,16 @@ class Orthonet(nn.Module):
     def __init__(self, pruning_vector, kernel_size=3, dropout_rate=0):
         super(Orthonet, self).__init__()
 
-        in_channels = 4 +  pruning_vector
+        in_channels = 4 + pruning_vector
 
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
-        self.deconv3 = deconv(512, 256)
-        self.deconv2 = deconv(256, 128)
-        self.deconv1 = deconv(128, 64)
-        self.deconv0 = deconv(64, 32)
+        self.deconv3 = deconv(512, 32)
+        # self.deconv2 = deconv(256, 128)
+        # self.deconv1 = deconv(128, 64)
+        # self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + in_channels, 4, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32, 4, kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -185,13 +190,14 @@ class Orthonet(nn.Module):
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
-        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
-        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
-        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+        # out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
+        # out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
+        # out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        cat0 = torch.cat((u, out_deconv0), dim=-3)
-        out = self.output_layer(cat0)
-
+        # cat0 = torch.cat((u, out_deconv0), dim=-3)
+        # out = self.output_layer(cat0)
+        out = self.output_layer(out_deconv3)
+        
         return out
 
 

@@ -96,6 +96,7 @@ if __name__ == '__main__':
             min_mse = valid_mse[-1] + valid_emse[-1]
             best_model = model
             torch.save(best_model, "model.pt")
+            torch.save(list(best_model.parameters()), 'model_state.pt')
 
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
             # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
