@@ -66,13 +66,14 @@ def ran_sample(model, mu, pruning_error, true):
         query[mask4] = -query[mask4]
 
         predicted = model.ortho_cons[-1](pruning_error, query)
-        delta = (predicted[:, 2:] - predicted[:, :2]) * torch.full((mu.shape[0], 2, 64, 64), 0.5, device=mu.device) \
-            + predicted[:, :2]
+        delta = torch.flatten((predicted[:, 2:] - predicted[:, :2]) *
+                              torch.full((mu.shape[0], 2, 8, 8), 0.5, device=mu.device) +
+                              predicted[:, :2])
 
-        query[:, :2][mask2] = delta  # [mask2]
-        query[:, 2:][mask2] = delta  # [mask2]
-        output[:, :2][mask2] = delta  # [mask2]
-        output[:, 2:][mask2] = delta  # [mask2]
+        query[:, :2][mask2] = delta[mask2]
+        query[:, 2:][mask2] = delta[mask2]
+        output[:, :2][mask2] = delta[mask2]
+        output[:, 2:][mask2] = delta[mask2]
 
     return output[:, :2]
 
@@ -175,12 +176,12 @@ class Orthonet(nn.Module):
 
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
-        self.deconv3 = deconv(512, 32)
-        # self.deconv2 = deconv(256, 128)
-        # self.deconv1 = deconv(128, 64)
-        # self.deconv0 = deconv(64, 32)
+        self.deconv3 = deconv(512, 256)
+        self.deconv2 = deconv(256, 128)
+        self.deconv1 = deconv(128, 64)
+        self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32, 4, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + in_channels, 4, kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -190,12 +191,12 @@ class Orthonet(nn.Module):
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
-        # out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
-        # out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
-        # out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
+        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
+        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        # cat0 = torch.cat((u, out_deconv), dim=-3)
-        out = self.output_layer(out_deconv3)
+        cat0 = torch.cat((u, out_deconv0), dim=-3)
+        out = self.output_layer(cat0)
 
         return out
 
