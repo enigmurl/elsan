@@ -32,7 +32,6 @@ def _mod(a, b):
     return ret + b if ret < 0 else ret
 
 
-@cache
 def _max_index(tensor):
     best = np.random.randint(0, tensor.shape[0]), np.random.randint(0, tensor.shape[1])
     wd = 0
@@ -53,6 +52,7 @@ def _max_index(tensor):
     return best
 
 
+@cache
 def mask_tensor(n):
     device = get_device()
 
