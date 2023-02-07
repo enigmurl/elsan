@@ -27,18 +27,22 @@ def ran_sample(model, mu, pruning_error, true):
         mask2 = torch.tile(real_mask, (2, 1, 1))
         mask4 = torch.tile(real_mask, (4, 1, 1))
 
+
         # compute query
         query[mask4] = -query[mask4]
+        print("Mean", torch.mean(torch.abs(query)))
 
         predicted = model.ortho_cons[-1](pruning_error, query)
-        delta = ((predicted[:, 2:] - predicted[:, :2]) *
-                              torch.full((mu.shape[0], 2, 64, 64), 0.5, device=mu.device) +
+        delta = torch.flatten((predicted[:, 2:] - predicted[:, :2]) *
+                              torch.full((mu.shape[0], 2, 8, 8), 0.5, device=mu.device) +
                               predicted[:, :2])
 
-        query[:, :2][mask2] = delta  # [mask2]
-        query[:, 2:][mask2] = delta  # [mask2]
+        query[:, :2][mask2] = true[mask2]
+        query[:, 2:][mask2] = true[mask2]
         output[:, :2][mask2] = delta  # [mask2]
         output[:, 2:][mask2] = delta  # [mask2]
+
+        print("RMSE", i, torch.sqrt(torch.mean(torch.square(query[:, :2][mask2] - output[:, :2][mask2]))))
 
     return output[:, :2]
 

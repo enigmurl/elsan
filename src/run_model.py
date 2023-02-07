@@ -37,6 +37,9 @@ if __name__ == '__main__':
     model = CLES(input_channels=input_length * 2, output_channels=2, kernel_size=kernel_size,
                  dropout_rate=dropout_rate, time_range=time_range, pruning_size=pruning_size,
                  orthos=len(con_list)).to(device)
+    for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
+        param.data = src.data
+    model = model.to(device)
     orthonet = model.ortho_cons
     model = nn.DataParallel(model)
 

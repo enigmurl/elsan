@@ -189,11 +189,11 @@ class VisualizeSigma(Scene):
 
         self.add(root)
 
-        root.add_updater(update)
-        self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+        # root.add_updater(update)
+        # self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
 
-        # root.add_updater(root_decomp)
-        # self.wait(2.5)
+        root.add_updater(root_decomp)
+        self.wait(2.5)
 
 
 

@@ -14,7 +14,7 @@ class HammerSchedule:
         self.step_num = 0
 
     def _fallof(self, decay):
-        return 2 ** (self.step_num * decay)
+        return 2 ** (-self.step_num * decay)
 
     def hammer_loss(self, predicted_min, true_point, predicted_max):
         buffer = self.hammer_buffer * self._fallof(self.hammer_decay)

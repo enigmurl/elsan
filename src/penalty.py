@@ -41,7 +41,6 @@ class BigErrorLoss(torch.nn.Module):
         loss = 0
         for ortho, c in zip(ortho_nets, con_list):
             batch_masks = (torch.rand(len(expected)) * len(prev)).long()
-
             real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
             # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
             # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
@@ -58,7 +57,7 @@ class BigErrorLoss(torch.nn.Module):
 
             predicted = ortho(actual_pruning, query)
 
-            pred_min = torch.flatten(predicted[:, :2]) # [mask2]
+            pred_min = torch.flatten(predicted[:, :2])  # [mask2]
             pred_max = torch.flatten(predicted[:, 2:])  # [mask2]
             compare = torch.flatten(expected[mask2])
 
@@ -74,7 +73,9 @@ class BigErrorLoss(torch.nn.Module):
 
             converted_c = NormalDist().cdf(c)
 
-            loss += self.drift * torch.mean(torch.square((pred_max + pred_min) / 2 - compare))
+            loss += self.drift * torch.sqrt(torch.mean(torch.square((pred_max + pred_min) / 2 - compare)))
+
+            print("Channel wise RMSE", torch.sqrt(torch.mean(torch.square((pred_max + pred_min) / 2 - compare))))
 
             if p_in < converted_c:
                 loss += hammer.hammer_loss(pred_min, compare, pred_max)
