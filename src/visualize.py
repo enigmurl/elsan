@@ -57,7 +57,7 @@ class VisualizeSigma(Scene):
 
     def model(self):
         model = CLES(input_channels=25 * 2, output_channels=2, kernel_size=3,
-                     dropout_rate=0, time_range=6, pruning_size=2,
+                     dropout_rate=0, time_range=6, pruning_size=8,
                      orthos=len(con_list))
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
             param.data = src.data

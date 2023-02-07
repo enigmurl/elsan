@@ -58,9 +58,9 @@ class BigErrorLoss(torch.nn.Module):
 
             predicted = ortho(actual_pruning, query)
 
-            pred_min = predicted[:, :2][mask2]
-            pred_max = predicted[:, 2:][mask2]
-            compare = expected[mask2]
+            pred_min = torch.flatten(predicted[:, :2]) # [mask2]
+            pred_max = torch.flatten(predicted[:, 2:])  # [mask2]
+            compare = torch.flatten(expected[mask2])
 
             greater = compare >= pred_min
             less = compare <= pred_max
