@@ -25,7 +25,7 @@ learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
 batch_size = 64
-pruning_size = 2
+pruning_size = 8
 coef = 0
 
 train_indices = list(range(0, 6000))

@@ -98,7 +98,7 @@ class VisualizeSigma(Scene):
         fnum = -1
         raw_frame = 0
         xx = frames[:, :TOFFSET * 2].to(device)
-        prev_error = torch.zeros((1, 2, frames.shape[-2], frames.shape[-1]), device=device)
+        prev_error = torch.zeros((1, 8, frames.shape[-2], frames.shape[-1]), device=device)
         im, prev_error = model(xx, prev_error)
         xx = torch.cat([xx[:, 2:], im], 1)
         samp = ran_sample(model, im, prev_error,
