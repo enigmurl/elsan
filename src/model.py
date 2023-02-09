@@ -31,52 +31,52 @@ def sample(channels: torch.tensor, t):
 
 
 def ran_sample(model, mu, pruning_error, expected):
-    rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=mu.device)
-    output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+    with torch.no_grad():
+        output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
 
-    masks_ = mask_tensor(64)
-    prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), torch.tile(torch.unsqueeze(masks_[1], 0),
-                                                                                        (64, 1, 1, 1))
-    for i in range(64):
-        batch = (torch.rand(63, device=device) * 64).long()
-        masks[1:, i] = masks_[1][batch]
-        prevs[1:, i] = masks_[0][batch]
+        masks_ = mask_tensor(64)
+        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), torch.tile(torch.unsqueeze(masks_[1], 0),
+                                                                                            (64, 1, 1, 1))
+        for i in range(64):
+            batch = (torch.rand(63, device=device) * 64).long()
+            masks[1:, i] = masks_[1][batch]
+            prevs[1:, i] = masks_[0][batch]
 
-    rmse = []
-    rmse_1 = []
-    for i in range(masks.shape[1]):
-        query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
-        query[:, :2] = -query[:, :2]
-        m = masks[:, i]
-        real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
-        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-        mask2 = torch.tile(real_mask, (2, 1, 1))
-        mask4 = torch.tile(real_mask, (4, 1, 1))
-        query[:, :2][real_prev] = expected[real_prev]
-        query[:, 2:][real_prev] = expected[real_prev]
-        query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-        query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
+        rmse = []
+        rmse_1 = []
+        for i in range(masks.shape[1]):
+            query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+            query[:, :2] = -query[:, :2]
+            m = masks[:, i]
+            real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
+            real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
+            mask2 = torch.tile(real_mask, (2, 1, 1))
+            mask4 = torch.tile(real_mask, (4, 1, 1))
+            query[:, :2][real_prev] = expected[real_prev]
+            query[:, 2:][real_prev] = expected[real_prev]
+            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
-        # compute query
-        query[mask4] = -query[mask4]
+            # compute query
+            query[mask4] = -query[mask4]
 
-        predicted = model._modules['module'].orthonet(pruning_error, query)
-        delta = sample(predicted, torch.rand((predicted.shape[0], *predicted.shape[2:]), device=device))
+            predicted = model._modules['module'].orthonet(pruning_error, query)
+            delta = sample(predicted, torch.rand((predicted.shape[0], *predicted.shape[2:]), device=device))
 
-        query[:, :2][mask2] = delta[mask2]
-        query[:, 2:][mask2] = delta[mask2]
-        output[:, :2][mask2] = delta[mask2]
-        output[:, 2:][mask2] = delta[mask2]
+            query[:, :2][mask2] = delta[mask2]
+            query[:, 2:][mask2] = delta[mask2]
+            output[:, :2][mask2] = delta[mask2]
+            output[:, 2:][mask2] = delta[mask2]
 
-        rmse.append(torch.mean(torch.square(query[0, :2][mask2[0]] - expected[0][mask2[0]])))
-        rmse_1.append(torch.mean(torch.square(query[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
-        print(f"RMSE 0 {i} {torch.sqrt(rmse[-1]):4f}")
-        print(f"RMSE 1 {i} {torch.sqrt(rmse_1[-1]):4f}")
+            rmse.append(torch.mean(torch.square(query[0, :2][mask2[0]] - expected[0][mask2[0]])))
+            rmse_1.append(torch.mean(torch.square(query[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
+            print(f"RMSE 0 {i} {torch.sqrt(rmse[-1]):4f}")
+            print(f"RMSE 1 {i} {torch.sqrt(rmse_1[-1]):4f}")
 
-    print(f"RMSE main {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
-    print(f"RMSE full {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
+        print(f"RMSE main {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+        print(f"RMSE full {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
 
-    return output[:1, :2]
+        return output[:1, :2]
 
 
 def contains_sample(model, mu, pruning_error, y_true):

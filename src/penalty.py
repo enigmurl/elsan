@@ -32,9 +32,10 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.05):
+    def __init__(self, noise_z=0.01, drift=0.05):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
+        self.drift = drift
 
     def forward(self, orthonet, actual_pruning, expected, con_list, hammer):
         loss = 0
@@ -51,7 +52,7 @@ class BigErrorLoss(torch.nn.Module):
         # compute query
         query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
         query[:, 2:] = 5
-        noise = torch.normal(0, self.noise_z, expected.shape)
+        noise = torch.normal(0, self.noise_z, expected.shape, device=device)
         query[:, 2:][real_prev] = query[:, :2][real_prev] = (expected + noise)[real_prev]
         query[mask4] = -query[mask4]
 
@@ -72,7 +73,15 @@ class BigErrorLoss(torch.nn.Module):
             else:
                 loss += hammer.lorris_loss(compare, curr)
 
-            print(f"Target {p_true:4f} Received {p_value:4f}")
+            if i <= len(con_list) // 2:
+                prime = len(con_list) - 1 - i
+                comp = predicted[:, 2 * prime: 2 * (prime + 1)][mask2]
+
+                mean = (comp + curr) / 2
+
+                loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
+
+            print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
 
         return loss
 
