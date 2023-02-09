@@ -34,7 +34,7 @@ def c_sample(max_p=NormalDist().cdf(4)):
 class BigErrorLoss(torch.nn.Module):
     def __init__(self, noise_z=0.05):
         super(BigErrorLoss, self).__init__()
-        self.noise = noise_z
+        self.noise_z = noise_z
 
     def forward(self, orthonet, actual_pruning, expected, con_list, hammer):
         loss = 0
@@ -72,7 +72,7 @@ class BigErrorLoss(torch.nn.Module):
             else:
                 loss += hammer.lorris_loss(compare, curr)
 
-            print("Target", p_true, "Received", p_value)
+            print(f"Target {p_true:4f} Received {p_value:4f}")
 
         return loss
 

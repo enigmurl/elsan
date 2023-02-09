@@ -70,12 +70,10 @@ if __name__ == '__main__':
 
     train_mse = []
     train_emse = []
-    train_lorris = []
-    train_p = []
+
     valid_mse = []
     valid_emse = []
-    valid_p = []
-    valid_lorris = []
+
     test_mse = []
     min_mse = 100
 
@@ -90,25 +88,21 @@ if __name__ == '__main__':
         prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
         im, prev_error = model(xx, prev_error)
         ran_sample(model, im, prev_error,
-            frames[:, 60:62])
+                   frames[:, 60:62])
         print("hash", hash(model))
-        mse, emse, p, lorris = train_epoch(train_loader, model, orthonet, optimizer, hammer, con_list,
-                                           loss_fun, error_fun,
-                                           pruning_size,
-                                           coef, regularizer)
+        mse, emse, = train_epoch(train_loader, model, orthonet, optimizer, hammer, con_list,
+                                 loss_fun, error_fun,
+                                 pruning_size,
+                                 coef, regularizer)
 
         train_mse.append(mse)
-        train_lorris.append(lorris)
         train_emse.append(emse)
-        train_p.append(p)
 
         model.eval()
-        mse, emse, p_valid, lorris, preds, trues = eval_epoch(valid_loader, model, orthonet, hammer,
-                                                              con_list, loss_fun, error_fun, pruning_size)
+        mse, emse, preds, trues = eval_epoch(valid_loader, model, orthonet, hammer,
+                                             con_list, loss_fun, error_fun, pruning_size)
         valid_mse.append(mse)
         valid_emse.append(emse)
-        valid_p.append(p_valid)
-        valid_lorris.append(lorris)
 
         if valid_mse[-1] + valid_emse[-1] < min_mse:
             min_mse = valid_mse[-1] + valid_emse[-1]
@@ -126,10 +120,8 @@ if __name__ == '__main__':
 
         end = time.time()
 
-        print("train mse", train_mse[-1], "train emse", train_emse[-1], "train p", train_p[-1],
-              "train lorris", train_lorris[-1],
-              "valid mse", valid_mse[-1], "valid emse", valid_emse[-1], "valid p", valid_p[-1],
-              "valid lorris", valid_lorris[-1],
+        print("train mse", train_mse[-1], "train emse", train_emse[-1],
+              "valid mse", valid_mse[-1], "valid emse", valid_emse[-1],
               "minutes", round((end - start) / 60, 5))
 
         if len(train_mse) > 75 and np.mean(valid_mse[-5:]) >= np.mean(valid_mse[-10:-5]):

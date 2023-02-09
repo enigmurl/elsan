@@ -36,8 +36,6 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
                 coef=0, regularizer=None):
     train_mse = []
     train_emse = []
-    p = []
-    lorris = []
 
     for b, (xx, yy) in enumerate(train_loader):
         loss = 0
@@ -55,10 +53,8 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
             else:
                 loss += loss_function(im, y)
 
-            pval, l, dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
+            dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
             e_loss += dloss
-            p.append(pval.cpu().data.numpy())
-            lorris.append(l.cpu().data.numpy())
 
             # pad = (xx.shape[-1] - error.shape[-1]) // 2
             # error = torch.nn.functional.pad(error, (pad, pad, pad, pad)).detach()  # should not affect future results
@@ -75,17 +71,12 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
         hammer.step()
 
     train_mse, e_loss = round(np.sqrt(np.mean(train_mse)), 5), round(np.sqrt(np.mean(train_emse)), 5)
-    p = np.mean(p, axis=0)
-    lorris = np.mean(lorris)
-
-    return train_mse, e_loss, p, lorris
+    return train_mse, e_loss
 
 
 def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_loss_fun, pruning_size):
     valid_mse = []
     valid_emse = []
-    p = []
-    lorris = []
 
     preds = []
     trues = []
@@ -104,10 +95,8 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                pval, l, dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
+                dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
                 e_loss += dloss
-                p.append(pval.cpu().data.numpy())
-                lorris.append(l.cpu().data.numpy())
 
                 # pad = (xx.shape[-1] - error.shape[-1]) // 2
                 # error = torch.nn.functional.pad(error, (pad, pad, pad, pad))
@@ -124,10 +113,8 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
 
         valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
         valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
-        p = np.mean(p, axis=0)
-        lorris = np.mean(lorris)
 
-    return valid_mse, valid_emse, p, lorris, preds, trues
+    return valid_mse, valid_emse, preds, trues
 
 
 def test_epoch(test_loader, model, loss_function, e_loss_fun):

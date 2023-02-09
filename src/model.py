@@ -12,13 +12,14 @@ def sample(channels: torch.tensor, t):
     ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=device)
     # so from each channel, lets see what's the best way to do this
     prev_x, prev_y, prev_p = -5, -5, 0
-    for i, c in range(len(con_list) + 1):
+    for i in range(len(con_list) + 1):
         next_x = 5 if i == len(con_list) else channels[:, 2 * i]
         next_y = 5 if i == len(con_list) else channels[:, 2 * i + 1]
         next_p = 1 if i == len(con_list) else NormalDist().cdf(con_list[i])
 
-        mask = t >= prev_p & t <= next_p
+        mask = (t >= prev_p) & (t <= next_p)
         t_prime = (t - prev_p) / (next_p - prev_p)
+
         ret[:, 0][mask] = (t_prime * (next_x - prev_x) + prev_x)[mask]
         ret[:, 1][mask] = (t_prime * (next_y - prev_y) + prev_y)[mask]
 
@@ -60,7 +61,7 @@ def ran_sample(model, mu, pruning_error, expected):
         query[mask4] = -query[mask4]
 
         predicted = model._modules['module'].orthonet(pruning_error, query)
-        delta = sample(predicted, torch.rand(predicted.shape, device=device))[mask2]
+        delta = sample(predicted, torch.rand((predicted.shape[0], *predicted.shape[2:]), device=device))
 
         query[:, :2][mask2] = delta[mask2]
         query[:, 2:][mask2] = delta[mask2]
@@ -69,11 +70,12 @@ def ran_sample(model, mu, pruning_error, expected):
 
         rmse.append(torch.mean(torch.square(query[0, :2][mask2[0]] - expected[0][mask2[0]])))
         rmse_1.append(torch.mean(torch.square(query[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
-        print("RMSE 0", i, torch.sqrt(rmse[-1]))
-        print("RMSE 1", i, torch.sqrt(rmse_1[-1]))
+        print(f"RMSE 0 {i} {torch.sqrt(rmse[-1]):4f}")
+        print(f"RMSE 1 {i} {torch.sqrt(rmse_1[-1]):4f}")
 
-    print("RMSE main", torch.sqrt(torch.mean(torch.tensor(rmse))))
-    print("RMSE full", torch.sqrt(torch.mean(torch.tensor(rmse_1))))
+    print(f"RMSE main {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+    print(f"RMSE full {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
+
     return output[:1, :2]
 
 
@@ -116,7 +118,7 @@ class Orthonet(nn.Module):
 
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
-        self.deconv3 = deconv(512, 32)
+        self.deconv3 = deconv(512, 256)
         self.deconv2 = deconv(256, 128)
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
