@@ -59,7 +59,7 @@ def ran_sample(model, mu, pruning_error, expected):
         # compute query
         query[mask4] = -query[mask4]
 
-        predicted = model._modules['module'].ortho_cons[-1](pruning_error, query)
+        predicted = model._modules['module'].orthonet(pruning_error, query)
         delta = sample(predicted, torch.rand(predicted.shape, device=device))[mask2]
 
         query[:, :2][mask2] = delta[mask2]
