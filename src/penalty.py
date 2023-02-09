@@ -32,149 +32,49 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, drift=0.05):
+    def __init__(self, noise_z=0.05):
         super(BigErrorLoss, self).__init__()
-        self.drift = drift
+        self.noise = noise_z
 
-    def forward(self, ortho_nets, actual_pruning, expected, con_list, hammer):
+    def forward(self, orthonet, actual_pruning, expected, con_list, hammer):
+        loss = 0
+
         prev, mask = mask_tensor(expected.shape[-1])
-        loss = 0
-        for ortho, c in zip(ortho_nets, con_list):
-            batch_masks = (torch.rand(len(expected)) * len(prev)).long()
-            real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
-            # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
-            # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
-            real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-            mask2 = torch.tile(real_mask, (2, 1, 1))
-            mask4 = torch.tile(real_mask, (4, 1, 1))
+        batch_masks = (torch.rand(len(expected)) * len(prev)).long()
+        real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
+        # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
+        # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
+        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
+        mask4 = torch.tile(real_mask, (4, 1, 1))
+        mask2 = torch.tile(real_mask, (2, 1, 1))
 
-            # compute query
-            query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
-            query[:, 2:] = 5
-            query[:, :2][real_prev] = expected[real_prev]
-            query[:, 2:][real_prev] = expected[real_prev]
-            query[mask4] = -query[mask4]
+        # compute query
+        query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
+        query[:, 2:] = 5
+        noise = torch.normal(0, self.noise_z, expected.shape)
+        query[:, 2:][real_prev] = query[:, :2][real_prev] = (expected + noise)[real_prev]
+        query[mask4] = -query[mask4]
 
-            predicted = ortho(actual_pruning, query)
+        # add some noise to query in previous portions to make it more robust
+        predicted = orthonet(actual_pruning, query)
 
-            pred_min = torch.flatten(predicted[:, :2])  # [mask2]
-            pred_max = torch.flatten(predicted[:, 2:])  # [mask2]
-            compare = torch.flatten(expected[mask2])
+        compare = expected[mask2]
 
-            greater = compare >= pred_min
-            less = compare <= pred_max
+        for i, c in enumerate(con_list):
+            curr = predicted[:, 2 * i: 2 * (i + 1)][mask2]
 
-            # standard hammer and lorris
-            full_in = torch.logical_and(greater, less)
-            count_in = torch.sum(full_in)
-            p_in = count_in / torch.numel(full_in)
+            greater = curr >= compare
+            p_value = torch.sum(greater) / torch.numel(greater)
 
-            widths = torch.mean(torch.square(pred_max - pred_min))
-
-            converted_c = NormalDist().cdf(c)
-
-            loss += self.drift * torch.sqrt(torch.mean(torch.square((pred_max + pred_min) / 2 - compare)))
-
-            print("Channel wise RMSE", torch.sqrt(torch.mean(torch.square((pred_max + pred_min) / 2 - compare))))
-
-            if p_in < converted_c:
-                loss += hammer.hammer_loss(pred_min, compare, pred_max)
-                print(f"Not contained {float(p_in.cpu().data):.4f} "
-                      f"compare {converted_c:.4f} "
-                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f} "
-                      f"drift {loss / self.drift:.4f}")
+            p_true = NormalDist().cdf(c)
+            if p_value < p_true:
+                loss += hammer.hammer_loss(compare, curr)
             else:
-                loss += hammer.lorris_loss(pred_min, compare, pred_max)
-                print(f"Yes contained {float(p_in.cpu().data):.4f} "
-                      f"compare {converted_c:.4f} "
-                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
+                loss += hammer.lorris_loss(compare, curr)
 
-        return p_in, torch.sqrt(widths), loss
+            print("Target", p_true, "Received", p_value)
 
-
-class ErrorLoss(torch.nn.Module):
-    def __init__(self):
-        super(ErrorLoss, self).__init__()
-
-    def forward(self, ortho_nets, actual_pruning, expected, con_list, hammer):
-        loss = 0
-        # so new system is to randomly apply the ins and outs
-        # and then the relative pivot position for each batch is fixed...
-        # [batch, 4, rows, cols]
-        batch = expected.shape[0]
-        r = expected.shape[-2]
-        c = expected.shape[-1]
-        for con, ortho in zip(con_list, ortho_nets):
-            rows = ortho.grid_rows
-            query = torch.tile(expected, dims=(1, 2, 1, 1))
-
-            # shut off random channels
-            channel_mask = torch.rand((batch, 1, r, c), device=device) > 0.5
-            mask = torch.tile(channel_mask, dims=(1, 2, 1, 1))
-
-            query[:, :2][mask] = -1
-            query[:, 2:][mask] = +1
-
-            # input inverted interval
-            # TODO we need to see how to do per instance of batch
-            pivot_dr = (torch.rand(batch) * rows).long()
-            pivot_dc = (torch.rand(batch) * rows).long()
-
-            for k in range(batch):
-                query[k, :2, pivot_dr[k]::rows, pivot_dc[k]::rows] = torch.ones(1).to(device)
-                query[k, 2:, pivot_dr[k]::rows, pivot_dc[k]::rows] = -torch.ones(1).to(device)
-
-            query = query.detach()
-
-            result = ortho(actual_pruning, query, con)
-            # real_dif = (expected - actual_mu).detach()  # do not adjust mu
-            real_dif = expected
-
-            # for each node, set the central value to the true difference of the pivot
-            reverse_pad = (rows - 1) // 2 * 2
-            dif_index = torch.zeros((batch, 2, r - reverse_pad, c - reverse_pad), device=device)
-            # TODO, remove for loops (possibly via reshaping + padding)
-            for i in range(rows):
-                for j in range(rows):
-                    for k in range(batch):
-                        end_r = (r - reverse_pad - i + rows - 1) // rows * rows + pivot_dr[k]
-                        end_c = (c - reverse_pad - j + rows - 1) // rows * rows + pivot_dc[k]
-                        dif_index[k, :, i::rows, j::rows] = real_dif[k, :, pivot_dr[k]:end_r:rows, pivot_dc[k]:end_c:rows]
-
-            greater = dif_index >= result[:, :2]
-            less = dif_index <= result[:, 2:]
-
-            full_in = torch.logical_and(greater, less)
-            count_in = torch.sum(full_in)
-            p_in = count_in / torch.numel(full_in)
-
-            widths = torch.mean(torch.square(result[:, 2:] - result[:, :2]))
-
-            converted_c = NormalDist().cdf(con)
-
-            if p_in < converted_c:
-                # Hammer on nodes outside
-                loss += hammer.hammer_loss(result[:, :2], dif_index, result[:, 2:])
-                print(f"Not contained {float(p_in.cpu().data):.4f} "
-                      f"compare {converted_c:.4f} "
-                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
-            else:
-                loss += hammer.lorris_loss(result[:, :2], dif_index, result[:, 2:])
-                print(f"Yes contained {float(p_in.cpu().data):.4f} "
-                      f"compare {converted_c:.4f} "
-                      f"greater {float((torch.sum(greater) / torch.numel(greater)).cpu().data):.4f} "
-                      f"less {float((torch.sum(less) / torch.numel(less)).cpu().data):.4f} "
-                      f"width {float(torch.sqrt(widths).cpu().data):.4f}")
-
-        loss /= len(ortho_nets)
-
-        return p_in, torch.sqrt(widths), loss
+        return loss
 
 
 class MagnitudeLoss(torch.nn.Module):

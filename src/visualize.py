@@ -7,7 +7,7 @@ sys.path.append(os.getcwd())
 from model import *
 from util import *
 
-device = get_device(no_mps=False)
+device = get_device(no_mps=True)
 
 DIR = "../data/data_64/sample_"
 INDICES = range(6000, 7700)
@@ -53,147 +53,149 @@ class VisualizeSigma(Scene):
     def load_rand(self):
         index = np.random.random_integers(INDICES.start, INDICES.stop)
         ret = torch.load(DIR + str(index) + ".pt")
-        return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0)
+        return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
 
     def model(self):
         model = CLES(input_channels=25 * 2, output_channels=2, kernel_size=3,
                      dropout_rate=0, time_range=6, pruning_size=8,
                      orthos=len(con_list))
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
-            param.data = src.data
+            param.data = torch.tensor(src)
         return model.to(device)
 
     def construct(self) -> None:
         self.wait(0.01)
 
-        frames = self.load_rand()
+        frames = torch.cat([self.load_rand() for _ in range(64)], dim=0)
         model = self.model()
+        model = nn.DataParallel(model)
         # model.eval()
 
-        root = VGroup()
+        with torch.no_grad():
 
-        t_label = Dot().set_fill(RED, opacity=1).shift(4 * LEFT + 2.5 * UP)
-        xt_frame = Dot()
-        yt_frame = Dot()
-        t_frame = Dot()
-        t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
+            root = VGroup()
 
-        m_label = Dot().set_fill(BLUE, opacity=1).shift(4 * LEFT)
-        xm_frame = Dot()
-        ym_frame = Dot()
-        m_frame = Dot()
-        m_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
+            t_label = Dot().set_fill(RED, opacity=1).shift(4 * LEFT + 2.5 * UP)
+            xt_frame = Dot()
+            yt_frame = Dot()
+            t_frame = Dot()
+            t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
 
-        s_label = Dot().set_fill(GREEN, opacity=1).shift(4 * LEFT + 2.5 * DOWN)
-        xs_frame = Dot()
-        ys_frame = Dot()
-        s_frame = Dot()
-        s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
+            m_label = Dot().set_fill(BLUE, opacity=1).shift(4 * LEFT)
+            xm_frame = Dot()
+            ym_frame = Dot()
+            m_frame = Dot()
+            m_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
 
-        root.add(xt_frame, yt_frame, t_frame, t_label)
-        root.add(xm_frame, ym_frame, m_frame, m_label)
-        root.add(xs_frame, ys_frame, s_frame, s_label)
+            s_label = Dot().set_fill(GREEN, opacity=1).shift(4 * LEFT + 2.5 * DOWN)
+            xs_frame = Dot()
+            ys_frame = Dot()
+            s_frame = Dot()
+            s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
 
-        t = 0
-        fnum = -1
-        raw_frame = 0
-        xx = frames[:, :TOFFSET * 2].to(device)
-        prev_error = torch.zeros((1, 8, frames.shape[-2], frames.shape[-1]), device=device)
-        im, prev_error = model(xx, prev_error)
-        xx = torch.cat([xx[:, 2:], im], 1)
-        samp = ran_sample(model, im, prev_error,
-                          frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-        im = im.cpu().data.numpy()
+            root.add(xt_frame, yt_frame, t_frame, t_label)
+            root.add(xm_frame, ym_frame, m_frame, m_label)
+            root.add(xs_frame, ys_frame, s_frame, s_label)
 
-        pm, mask = mask_tensor(64)
+            t = 0
+            fnum = -1
+            raw_frame = 0
+            xx = frames[:, :TOFFSET * 2].to(device)
+            prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
+            im, prev_error = model(xx, prev_error)
+            samp = ran_sample(model, im, prev_error,
+                       frames[:, 60:62]).cpu().data.numpy()
+            im = im.cpu().data.numpy()
 
-        def update(m, dt):
-            nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
-            t += dt
-            raw_frame = int(t / (1 / 30))
-            prev = fnum
-            fnum = int(t / FRAME_DT)
+            pm, mask = mask_tensor(64)
 
-            if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
-                return
+            def update(m, dt):
+                nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
+                t += dt
+                raw_frame = int(t / (1 / 30))
+                prev = fnum
+                fnum = int(t / FRAME_DT)
 
-            if fnum > prev:
-                pad = (xx.shape[-1] - prev_error.shape[-1]) // 2
-                prev_error = torch.nn.functional.pad(prev_error, (pad, pad, pad, pad))
-                im, prev_error = model(xx, prev_error)
-                xx = torch.cat([xx[:, 2:], im], 1)
-                contained = contains_sample(model, im, prev_error,
-                                            frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
-                samp = ran_sample(model, im, prev_error, frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                print("Step model ", contained)
-            else:
-                samp = ran_sample(model, im, prev_error, frames[0, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
+                if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
+                    return
+
+                if fnum > prev:
+                    pad = (xx.shape[-1] - prev_error.shape[-1]) // 2
+                    prev_error = torch.nn.functional.pad(prev_error, (pad, pad, pad, pad))
+                    im, prev_error = model(xx, prev_error)
+                    xx = torch.cat([xx[:, 2:], im], 1)
+                    contained = contains_sample(model, im, prev_error,
+                                                frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
+                    samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
+                    print("Step model ", contained)
+                else:
+                    samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
+
+                    sx = samp[0, 0]
+                    sy = samp[0, 1]
+
+                    xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                    ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                    s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                    return
+
+                tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
+                ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
+
+                real_im = im.cpu().data.numpy()
+                mx = real_im[0, 0]
+                my = real_im[0, 1]
 
                 sx = samp[0, 0]
                 sy = samp[0, 1]
 
+                print("mine rmse", fnum,
+                      np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+                print("tfnt rmse", fnum,
+                      np.sqrt(np.mean(np.square(
+                          real_im[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+
+                xt_frame.become(frame("x true", tx, ORIGIN)).shift(2 * LEFT + 2.5 * UP)
+                yt_frame.become(frame("y true", ty, ORIGIN)).shift(2.5 * UP)
+                t_frame.become(vector_frame(t_axis, tx, ty)).shift(2 * RIGHT + 2.5 * UP)
+
+                xm_frame.become(frame("x mean", mx, ORIGIN)).shift(2 * LEFT)
+                ym_frame.become(frame("y mean", my, ORIGIN))
+                m_frame.become(vector_frame(m_axis, mx, my)).shift(2 * RIGHT)
+                #
                 xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
                 ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
                 s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-                return
 
-            tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
-            ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
+                # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
-            real_im = im.cpu().data.numpy()
-            mx = real_im[0, 0]
-            my = real_im[0, 1]
+            def root_decomp(m, dt):
+                nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
+                t += dt
+                raw_frame = int(t / (1 / 30))
+                prev = fnum
+                fnum = int(t / FRAME_DT)
 
-            sx = samp[0, 0]
-            sy = samp[0, 1]
+                sx = samp[0, 0].copy()
+                sy = samp[0, 1].copy()
 
-            print("mine rmse", fnum,
-                  np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
-            print("tfnt rmse", fnum,
-                  np.sqrt(np.mean(np.square(
-                      real_im[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+                if raw_frame < 64:
+                    sx[~pm[raw_frame]] = -5
+                    sy[~pm[raw_frame]] = -5
 
-            xt_frame.become(frame("x true", tx, ORIGIN)).shift(2 * LEFT + 2.5 * UP)
-            yt_frame.become(frame("y true", ty, ORIGIN)).shift(2.5 * UP)
-            t_frame.become(vector_frame(t_axis, tx, ty)).shift(2 * RIGHT + 2.5 * UP)
+                xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
 
-            xm_frame.become(frame("x mean", mx, ORIGIN)).shift(2 * LEFT)
-            ym_frame.become(frame("y mean", my, ORIGIN))
-            m_frame.become(vector_frame(m_axis, mx, my)).shift(2 * RIGHT)
-            #
-            xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-            ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-            s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
-            # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
+            self.add(root)
 
-        def root_decomp(m, dt):
-            nonlocal t, fnum, xx, im, prev_error, samp, raw_frame
-            t += dt
-            raw_frame = int(t / (1 / 30))
-            prev = fnum
-            fnum = int(t / FRAME_DT)
+            root.add_updater(update)
+            self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
 
-            sx = samp[0, 0].copy()
-            sy = samp[0, 1].copy()
-
-            if raw_frame < 64:
-                sx[~pm[raw_frame]] = -5
-                sy[~pm[raw_frame]] = -5
-
-            xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-            ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-            s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-
-            # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
-
-        self.add(root)
-
-        # root.add_updater(update)
-        # self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
-
-        root.add_updater(root_decomp)
-        self.wait(2.5)
+            # root.add_updater(root_decomp)
+            # self.wait(2.5)
 
 
 

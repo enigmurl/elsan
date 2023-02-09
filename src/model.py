@@ -5,46 +5,76 @@ from util import get_device, mask_tensor
 
 device = get_device()
 
-con_list = [
-            1,  # we'll add the other ones later
-            ]
+con_list = [-2, -1, -0.5, 0, 0.5, 1, 2]
 
 
-def ran_sample(model, mu, pruning_error, true):
+def sample(channels: torch.tensor, t):
+    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=device)
+    # so from each channel, lets see what's the best way to do this
+    prev_x, prev_y, prev_p = -5, -5, 0
+    for i, c in range(len(con_list) + 1):
+        next_x = 5 if i == len(con_list) else channels[:, 2 * i]
+        next_y = 5 if i == len(con_list) else channels[:, 2 * i + 1]
+        next_p = 1 if i == len(con_list) else NormalDist().cdf(con_list[i])
+
+        mask = t >= prev_p & t <= next_p
+        t_prime = (t - prev_p) / (next_p - prev_p)
+        ret[:, 0][mask] = (t_prime * (next_x - prev_x) + prev_x)[mask]
+        ret[:, 1][mask] = (t_prime * (next_y - prev_y) + prev_y)[mask]
+
+        prev_x = next_x
+        prev_y = next_y
+        prev_p = next_p
+
+    return ret
+
+
+def ran_sample(model, mu, pruning_error, expected):
     rand = torch.rand((mu.shape[0], 2, mu.shape[-2], mu.shape[-1]), device=mu.device)
-    query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
-    query[:, :2] = -query[:, :2]
-
     output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
 
-    true = torch.unsqueeze(true, dim=0).to(mu.device)
-    masks = mask_tensor(64)
-    prevs, masks = torch.unsqueeze(masks[0], 0), torch.unsqueeze(masks[1], 0)
+    masks_ = mask_tensor(64)
+    prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), torch.tile(torch.unsqueeze(masks_[1], 0),
+                                                                                        (64, 1, 1, 1))
+    for i in range(64):
+        batch = (torch.rand(63, device=device) * 64).long()
+        masks[1:, i] = masks_[1][batch]
+        prevs[1:, i] = masks_[0][batch]
 
+    rmse = []
+    rmse_1 = []
     for i in range(masks.shape[1]):
+        query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+        query[:, :2] = -query[:, :2]
         m = masks[:, i]
-        real_mask = torch.unsqueeze(m, 0)
+        real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
+        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
         mask2 = torch.tile(real_mask, (2, 1, 1))
         mask4 = torch.tile(real_mask, (4, 1, 1))
-
+        query[:, :2][real_prev] = expected[real_prev]
+        query[:, 2:][real_prev] = expected[real_prev]
+        query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+        query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
         # compute query
         query[mask4] = -query[mask4]
-        print("Mean", torch.mean(torch.abs(query)))
 
-        predicted = model.ortho_cons[-1](pruning_error, query)
-        delta = torch.flatten((predicted[:, 2:] - predicted[:, :2]) *
-                              torch.full((mu.shape[0], 2, 8, 8), 0.5, device=mu.device) +
-                              predicted[:, :2])
+        predicted = model._modules['module'].ortho_cons[-1](pruning_error, query)
+        delta = sample(predicted, torch.rand(predicted.shape, device=device))[mask2]
 
-        query[:, :2][mask2] = true[mask2]
-        query[:, 2:][mask2] = true[mask2]
-        output[:, :2][mask2] = delta  # [mask2]
-        output[:, 2:][mask2] = delta  # [mask2]
+        query[:, :2][mask2] = delta[mask2]
+        query[:, 2:][mask2] = delta[mask2]
+        output[:, :2][mask2] = delta[mask2]
+        output[:, 2:][mask2] = delta[mask2]
 
-        print("RMSE", i, torch.sqrt(torch.mean(torch.square(query[:, :2][mask2] - output[:, :2][mask2]))))
+        rmse.append(torch.mean(torch.square(query[0, :2][mask2[0]] - expected[0][mask2[0]])))
+        rmse_1.append(torch.mean(torch.square(query[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
+        print("RMSE 0", i, torch.sqrt(rmse[-1]))
+        print("RMSE 1", i, torch.sqrt(rmse_1[-1]))
 
-    return output[:, :2]
+    print("RMSE main", torch.sqrt(torch.mean(torch.tensor(rmse))))
+    print("RMSE full", torch.sqrt(torch.mean(torch.tensor(rmse_1))))
+    return output[:1, :2]
 
 
 def contains_sample(model, mu, pruning_error, y_true):
@@ -87,11 +117,11 @@ class Orthonet(nn.Module):
         self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
         self.deconv3 = deconv(512, 32)
-        # self.deconv2 = deconv(256, 128)
-        # self.deconv1 = deconv(128, 64)
-        # self.deconv0 = deconv(64, 32)
+        self.deconv2 = deconv(256, 128)
+        self.deconv1 = deconv(128, 64)
+        self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32, 4, kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + in_channels, 2 * len(con_list), kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -101,13 +131,12 @@ class Orthonet(nn.Module):
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
-        # out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
-        # out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
-        # out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
+        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
+        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        # cat0 = torch.cat((u, out_deconv0), dim=-3)
-        # out = self.output_layer(cat0)
-        out = self.output_layer(out_deconv3)
+        cat0 = torch.cat((u, out_deconv0), dim=-3)
+        out = self.output_layer(cat0)
 
         return out
 
@@ -171,16 +200,7 @@ class CLES(nn.Module):
                                         kernel_size=kernel_size,
                                         padding=(kernel_size - 1) // 2)
 
-        seed = torch.seed()
-        ortho_list = []
-        for _ in range(orthos):
-            torch.manual_seed(seed)
-            # ortho_list.append(Orthocon(grid_elems=self.e_kernel * self.e_kernel,
-            #                            pruning_elems=pruning_size,
-            #                            dropout_rate=dropout_rate))
-            ortho_list.append(Orthonet(pruning_size))
-
-        self.ortho_cons = nn.ModuleList(ortho_list)
+        self.orthonet = Orthonet(pruning_size)
 
     def forward(self, xx, prev_error):
         xx_len = xx.shape[1]
