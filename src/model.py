@@ -5,11 +5,11 @@ from util import get_device, mask_tensor
 
 device = get_device()
 
-con_list = [-2, -1, -0.5, 0, 0.5, 1, 2]
+con_list = [-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3]
 
 
 def sample(channels: torch.tensor, t):
-    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=device)
+    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=t.device)
     # so from each channel, lets see what's the best way to do this
     prev_x, prev_y, prev_p = -5, -5, 0
     for i in range(len(con_list) + 1):
@@ -35,10 +35,12 @@ def ran_sample(model, mu, pruning_error, expected):
         output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
 
         masks_ = mask_tensor(64)
-        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), torch.tile(torch.unsqueeze(masks_[1], 0),
-                                                                                            (64, 1, 1, 1))
+        masks_ = masks_[0].to(mu.device), masks_[1].to(mu.device)
+        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
+                       torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
+
         for i in range(64):
-            batch = (torch.rand(63, device=device) * 64).long()
+            batch = (torch.rand(63, device=mu.device) * 64).long()
             masks[1:, i] = masks_[1][batch]
             prevs[1:, i] = masks_[0][batch]
 
@@ -61,7 +63,8 @@ def ran_sample(model, mu, pruning_error, expected):
             query[mask4] = -query[mask4]
 
             predicted = model._modules['module'].orthonet(pruning_error, query)
-            delta = sample(predicted, torch.rand((predicted.shape[0], *predicted.shape[2:]), device=device))
+            start = NormalDist().cdf(con_list[0])
+            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=mu.device))
 
             query[:, :2][mask2] = delta[mask2]
             query[:, 2:][mask2] = delta[mask2]

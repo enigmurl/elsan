@@ -7,7 +7,7 @@ sys.path.append(os.getcwd())
 from model import *
 from util import *
 
-device = get_device(no_mps=True)
+device = get_device(no_mps=False)
 
 DIR = "../data/data_64/sample_"
 INDICES = range(6000, 7700)
@@ -116,6 +116,7 @@ class VisualizeSigma(Scene):
                 prev = fnum
                 fnum = int(t / FRAME_DT)
 
+                print("FNUM", fnum, fnum * 2 + 1 + TOFFSET * 2, frames.shape[1], fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
                 if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
                     return
 
@@ -139,8 +140,8 @@ class VisualizeSigma(Scene):
                     s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
                     return
 
-                tx = frames[0, 2 * fnum + 0 + TOFFSET * 2]
-                ty = frames[0, 2 * fnum + 1 + TOFFSET * 2]
+                tx = frames[0, 2 * fnum + 0 + TOFFSET * 2].cpu().data.numpy()
+                ty = frames[0, 2 * fnum + 1 + TOFFSET * 2].cpu().data.numpy()
 
                 real_im = im.cpu().data.numpy()
                 mx = real_im[0, 0]
@@ -192,10 +193,7 @@ class VisualizeSigma(Scene):
             self.add(root)
 
             root.add_updater(update)
-            self.wait(stop_condition=lambda: fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+            self.wait((frames.shape[1] - TOFFSET * 2) / 2 * FRAME_DT + 0.2)
 
             # root.add_updater(root_decomp)
             # self.wait(2.5)
-
-
-

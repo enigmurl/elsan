@@ -19,7 +19,7 @@ test_direc = "../data/data_64/sample_"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
 time_range = 6
-output_length = 4
+output_length = 6
 input_length = 25
 learning_rate = 1e-3
 dropout_rate = 0
