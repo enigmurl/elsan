@@ -32,12 +32,12 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.01, drift=0.05):
+    def __init__(self, noise_z=0.02, drift=0.03):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
 
-    def forward(self, orthonet, actual_pruning, expected, con_list, hammer):
+    def forward(self, orthonet, actual_pruning, expected, con_list, hammer, fnum):
         loss = 0
 
         prev, mask = mask_tensor(expected.shape[-1])
@@ -52,7 +52,7 @@ class BigErrorLoss(torch.nn.Module):
         # compute query
         query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
         query[:, 2:] = 5
-        noise = torch.normal(0, self.noise_z, expected.shape, device=device)
+        noise = torch.normal(0, self.noise_z * (fnum + 1), expected.shape, device=device)
         query[:, 2:][real_prev] = query[:, :2][real_prev] = (expected + noise)[real_prev]
         query[mask4] = -query[mask4]
 

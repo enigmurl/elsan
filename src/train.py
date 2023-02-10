@@ -44,7 +44,8 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
         error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device).detach()
-        for y in yy.transpose(0, 1):
+
+        for f, y in enumerate(yy.transpose(0, 1)):
             im, error = model(xx, error)
             xx = torch.cat([xx[:, 2:], im], 1)
 
@@ -53,7 +54,7 @@ def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_fu
             else:
                 loss += loss_function(im, y)
 
-            dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
+            dloss = e_loss_fun(orthonet, error, y, c_fun, hammer, f)
             e_loss += dloss
 
             # pad = (xx.shape[-1] - error.shape[-1]) // 2
@@ -89,13 +90,13 @@ def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_lo
             error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
             ims = []
 
-            for y in yy.transpose(0, 1):
+            for f, y in enumerate(yy.transpose(0, 1)):
                 im, error = model(xx, error)
                 xx = torch.cat([xx[:, 2:], im], 1)
                 loss += loss_function(im, y)
                 ims.append(im.cpu().data.numpy())
 
-                dloss = e_loss_fun(orthonet, error, y, c_fun, hammer)
+                dloss = e_loss_fun(orthonet, error, y, c_fun, hammer, f)
                 e_loss += dloss
 
                 # pad = (xx.shape[-1] - error.shape[-1]) // 2
@@ -133,14 +134,14 @@ def test_epoch(test_loader, model, loss_function, e_loss_fun):
             e_loss = 0
             ims = []
 
-            for y in yy.transpose(0, 1):
+            for f, y in enumerate(yy.transpose(0, 1)):
                 im, error = model(xx, error)
                 xx = torch.cat([xx[:, 2:], im], 1)
                 mse = loss_function(im, y)
                 loss += mse
                 loss_curve.append(mse.item())
 
-                e_loss += e_loss_fun(im, error, y)
+                e_loss += e_loss_fun(im, error, y, f)
 
                 ims.append(im.cpu().data.numpy())
 

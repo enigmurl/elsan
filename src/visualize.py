@@ -10,11 +10,11 @@ from util import *
 device = get_device(no_mps=False)
 
 DIR = "../data/data_64/sample_"
-INDICES = range(6000, 7700)
+INDICES = range(9800, 9850)
 TOFFSET = 30
 
 COLOR_MAP = "3b1b_colormap"
-FRAME_DT = 1 / 5  # amount of seconds to progress one real frame
+FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
