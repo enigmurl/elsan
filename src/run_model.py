@@ -88,12 +88,13 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
+        error = base(xx)
+        ran_sample(query, error, frames[:, 60:62])
         # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
         # im = model(xx)
         # ran_sample(model, im, prev_error,
         #            frames[:, 60:62])
-        print("hash", hash(model))
-        emse, = train_epoch(train_loader, base, trans, query, optimizer, hammer, con_list, error_fun)
+        emse = train_epoch(train_loader, base, trans, query, optimizer, hammer, con_list, error_fun)
 
         train_emse.append(emse)
 

@@ -30,24 +30,25 @@ def sample(channels: torch.tensor, t):
     return ret
 
 
-def ran_sample(model, mu, pruning_error, expected):
+def ran_sample(model, pruning_error, expected):
     with torch.no_grad():
-        output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+        output = torch.ones((expected.shape[0]), 4, expected.shape[-2], expected.shape[-1], device=expected.device)
 
         masks_ = mask_tensor(64)
-        masks_ = masks_[0].to(mu.device), masks_[1].to(mu.device)
+        masks_ = masks_[0].to(expected.device), masks_[1].to(expected.device)
         prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
                        torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
 
         for i in range(64):
-            batch = (torch.rand(63, device=mu.device) * 64).long()
+            batch = (torch.rand(63, device=expected.device) * 64).long()
             masks[1:, i] = masks_[1][batch]
             prevs[1:, i] = masks_[0][batch]
 
         rmse = []
         rmse_1 = []
         for i in range(masks.shape[1]):
-            query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+            query = 5 * torch.ones((expected.shape[0]), 4, expected.shape[-2], expected.shape[-1],
+                                   device=expected.device)
             query[:, :2] = -query[:, :2]
             m = masks[:, i]
             real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
@@ -62,9 +63,9 @@ def ran_sample(model, mu, pruning_error, expected):
             # compute query
             query[mask4] = -query[mask4]
 
-            predicted = model._modules['module'].orthonet(pruning_error, query)
+            predicted = model(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
-            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=mu.device))
+            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
             query[:, :2][mask2] = delta[mask2]
             query[:, 2:][mask2] = delta[mask2]

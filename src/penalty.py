@@ -79,6 +79,7 @@ class BigErrorLoss(torch.nn.Module):
 
                 mean = (comp + curr) / 2
 
+                print(f"Width {i} {float(torch.sqrt(torch.mean(torch.square(comp - curr)))):4f}")
                 # loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
 
             print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
