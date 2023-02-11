@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils import data
 import numpy as np
 import time
-from model import CLES, LES, con_list, ran_sample
+from model import Orthonet, con_list, ran_sample
 from penalty import DivergenceLoss, BigErrorLoss
 from train import Dataset, train_epoch, eval_epoch, test_epoch
 from util import get_device
@@ -25,7 +25,7 @@ learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
 batch_size = 64
-pruning_size = 8
+pruning_size = 16
 coef = 0
 
 train_indices = list(range(0, 6000))
@@ -40,15 +40,20 @@ def load_rand():
 
 
 if __name__ == '__main__':
-    model = CLES(input_channels=input_length * 2, output_channels=2, kernel_size=kernel_size,
-                 dropout_rate=dropout_rate, time_range=time_range, pruning_size=pruning_size,
-                 orthos=len(con_list)).to(device)
+    model = Orthonet(input_channels=input_length * 2,
+                     pruning_size=pruning_size,
+                     kernel_size=kernel_size,
+                     dropout_rate=dropout_rate,
+                     time_range=time_range
+                     ).to(device)
     # for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
     #    param.data = torch.tensor(src, device=device)
     #    print(np.mean(np.abs(src)))
     # model = torch.load('model.pt')
     print("Hash", hash(model))
-    orthonet = model.orthonet
+    base = model.base
+    trans = model.transition
+    query = model.query
     model = nn.DataParallel(model)
     # model.eval()
     frames = torch.cat([load_rand() for _ in range(64)], dim=0)
@@ -68,10 +73,8 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), learning_rate, betas=(0.9, 0.999), weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
-    train_mse = []
-    train_emse = []
 
-    valid_mse = []
+    train_emse = []
     valid_emse = []
 
     test_mse = []
@@ -90,22 +93,16 @@ if __name__ == '__main__':
         ran_sample(model, im, prev_error,
                    frames[:, 60:62])
         print("hash", hash(model))
-        mse, emse, = train_epoch(train_loader, model, orthonet, optimizer, hammer, con_list,
-                                 loss_fun, error_fun,
-                                 pruning_size,
-                                 coef, regularizer)
+        emse, = train_epoch(train_loader, base, trans, query, optimizer, hammer, con_list, error_fun)
 
-        train_mse.append(mse)
         train_emse.append(emse)
 
         model.eval()
-        mse, emse, preds, trues = eval_epoch(valid_loader, model, orthonet, hammer,
-                                             con_list, loss_fun, error_fun, pruning_size)
-        valid_mse.append(mse)
+        emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
         valid_emse.append(emse)
 
-        if valid_mse[-1] + valid_emse[-1] < min_mse:
-            min_mse = valid_mse[-1] + valid_emse[-1]
+        if valid_emse[-1] < min_mse:
+            min_mse = valid_emse[-1]
             best_model = model
             torch.save(best_model, "model.pt")
             torch.save(list(x.cpu().data.numpy().copy() for x in best_model.parameters()), 'model_state.pt')
@@ -120,9 +117,9 @@ if __name__ == '__main__':
 
         end = time.time()
 
-        print("train mse", train_mse[-1], "train emse", train_emse[-1],
-              "valid mse", valid_mse[-1], "valid emse", valid_emse[-1],
+        print("train emse", train_emse[-1],
+              "valid emse", valid_emse[-1],
               "minutes", round((end - start) / 60, 5))
 
-        if len(train_mse) > 75 and np.mean(valid_mse[-5:]) >= np.mean(valid_mse[-10:-5]):
+        if len(train_emse) > 75 and np.mean(valid_emse[-5:]) >= np.mean(valid_emse[-10:-5]):
             break

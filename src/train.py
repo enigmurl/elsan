@@ -32,90 +32,56 @@ class Dataset(data.Dataset):
         return x.float(), y.float()
 
 
-def train_epoch(train_loader, model, orthonet, optimizer, hammer, c_fun, loss_function, e_loss_fun, pruning_size,
-                coef=0, regularizer=None):
-    train_mse = []
+def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_loss_fun):
     train_emse = []
 
     for b, (xx, yy) in enumerate(train_loader):
-        loss = 0
         e_loss = 0
-        ims = []
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
-        error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device).detach()
+        error = base(xx)
 
         for f, y in enumerate(yy.transpose(0, 1)):
-            im, error = model(xx, error)
-            xx = torch.cat([xx[:, 2:], im], 1)
-
-            if coef != 0:
-                loss += loss_function(im, y) + coef*regularizer(im, y)
-            else:
-                loss += loss_function(im, y)
-
-            dloss = e_loss_fun(orthonet, error, y, c_fun, hammer, f)
+            dloss = e_loss_fun(query, error, y, c_fun, hammer, f)
             e_loss += dloss
 
-            # pad = (xx.shape[-1] - error.shape[-1]) // 2
-            # error = torch.nn.functional.pad(error, (pad, pad, pad, pad)).detach()  # should not affect future results
-        # ims.append(im.cpu().data.numpy())
+            if f != yy.shape[1] - 1:
+                error = trans(error)
 
-        full_loss = loss + e_loss
+        full_loss = e_loss
 
         train_emse.append(e_loss.item() / yy.shape[1])
-        train_mse.append(loss.item() / yy.shape[1])
 
         optimizer.zero_grad()
         full_loss.backward()
         optimizer.step()
         hammer.step()
 
-    train_mse, e_loss = round(np.sqrt(np.mean(train_mse)), 5), round(np.sqrt(np.mean(train_emse)), 5)
-    return train_mse, e_loss
+    e_loss = round(np.sqrt(np.mean(train_emse)), 5)
+    return e_loss
 
 
-def eval_epoch(valid_loader, model, orthonet, hammer, c_fun, loss_function, e_loss_fun, pruning_size):
-    valid_mse = []
+def eval_epoch(valid_loader, base, trans, query, hammer, c_fun, e_loss_fun):
     valid_emse = []
 
-    preds = []
-    trues = []
     with torch.no_grad():
-        for xx, yy in valid_loader:
-            loss = 0
+        for b, (xx, yy) in enumerate(valid_loader):
             e_loss = 0
-            xx = xx.to(device)
-            yy = yy.to(device)
-            error = torch.zeros((xx.shape[0], pruning_size, *xx.shape[2:])).float().to(device)
-            ims = []
+            xx = xx.to(device).detach()
+            yy = yy.to(device).detach()
+            error = base(xx)
 
             for f, y in enumerate(yy.transpose(0, 1)):
-                im, error = model(xx, error)
-                xx = torch.cat([xx[:, 2:], im], 1)
-                loss += loss_function(im, y)
-                ims.append(im.cpu().data.numpy())
-
-                dloss = e_loss_fun(orthonet, error, y, c_fun, hammer, f)
+                dloss = e_loss_fun(query, error, y, c_fun, hammer, f)
                 e_loss += dloss
 
-                # pad = (xx.shape[-1] - error.shape[-1]) // 2
-                # error = torch.nn.functional.pad(error, (pad, pad, pad, pad))
+                if f != yy.shape[1] - 1:
+                    error = trans(error)
 
-            # ims = np.array(ims).transpose((1, 0, 2, 3, 4))
-            # preds.append(ims)
-            # trues.append(yy.cpu().data.numpy())
+            valid_emse.append(e_loss.item() / yy.shape[1])
 
-            valid_mse.append(loss.item()/yy.shape[1])
-            valid_emse.append(e_loss.item()/yy.shape[1])
-
-        # preds = np.concatenate(preds, axis=0)
-        # trues = np.concatenate(trues, axis=0)
-
-        valid_mse = round(np.sqrt(np.mean(valid_mse)), 5)
-        valid_emse = round(np.sqrt(np.mean(valid_emse)), 5)
-
-    return valid_mse, valid_emse, preds, trues
+    e_loss = round(np.sqrt(np.mean(valid_emse)), 5)
+    return e_loss
 
 
 def test_epoch(test_loader, model, loss_function, e_loss_fun):

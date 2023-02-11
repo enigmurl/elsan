@@ -105,7 +105,7 @@ class VisualizeSigma(Scene):
             im, prev_error = model(xx, prev_error)
             samp = ran_sample(model, im, prev_error,
                        frames[:, 60:62]).cpu().data.numpy()
-            p_value(model, im, prev_error, frames[:, 60:62])
+            # p_value(model, im, prev_error, frames[:, 60:62])
             im = im.cpu().data.numpy()
 
             pm, mask = mask_tensor(64)
@@ -127,7 +127,7 @@ class VisualizeSigma(Scene):
                     im, prev_error = model(xx, prev_error)
                     xx = torch.cat([xx[:, 2:], im], 1)
                     samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                    p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
+                    # p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
                 else:
                     samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
 

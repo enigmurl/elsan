@@ -32,7 +32,7 @@ def c_sample(max_p=NormalDist().cdf(4)):
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.02, drift=0.03):
+    def __init__(self, noise_z=0.001, drift=0.03):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
@@ -79,7 +79,7 @@ class BigErrorLoss(torch.nn.Module):
 
                 mean = (comp + curr) / 2
 
-                loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
+                # loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
 
             print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
 
