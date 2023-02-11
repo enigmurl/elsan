@@ -82,8 +82,81 @@ def ran_sample(model, mu, pruning_error, expected):
         return output[:1, :2]
 
 
-def contains_sample(model, mu, pruning_error, y_true):
-    return False
+def find_p(channels: torch.tensor, target):
+    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=target.device)
+    # so from each channel, lets see what's the best way to do this
+    prev_v, prev_p = -5, 0
+    for i in range(len(con_list) + 1):
+        next_v = 5 if i == len(con_list) else channels[:, 2 * i: 2 * i + 2]
+        next_p = 1 if i == len(con_list) else NormalDist().cdf(con_list[i])
+
+        mask = (target >= prev_v) & (target <= next_v)
+        t_prime = (target - prev_v) / (next_v - prev_v) * (next_p - prev_p) + prev_p
+
+        ret[mask] = t_prime[mask]
+
+        prev_v = next_v
+        prev_p = next_p
+
+    ret[ret < 0.5] = 2 * ret[ret < 0.5]
+    ret[ret >= 0.5] = 2 * (1 - ret[ret >= 0.5])
+    ret = torch.max(ret, dim=1).values
+
+    return ret
+
+
+def p_value(model, mu, pruning_error, y_true):
+    def reduce(lst):
+        return min(lst)
+
+    with torch.no_grad():
+        output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+
+        masks_ = mask_tensor(64)
+        masks_ = masks_[0].to(mu.device), masks_[1].to(mu.device)
+        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
+                       torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
+
+        for i in range(64):
+            batch = (torch.rand(63, device=mu.device) * 64).long()
+            masks[1:, i] = masks_[1][batch]
+            prevs[1:, i] = masks_[0][batch]
+
+        ps = []
+        for i in range(masks.shape[1]):
+            query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
+            query[:, :2] = -query[:, :2]
+            m = masks[:, i]
+            real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
+            real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
+            mask2 = torch.tile(real_mask, (2, 1, 1))
+            mask4 = torch.tile(real_mask, (4, 1, 1))
+            query[:, :2][real_prev] = y_true[real_prev]
+            query[:, 2:][real_prev] = y_true[real_prev]
+            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
+
+            # compute query
+            query[mask4] = -query[mask4]
+
+            predicted = model._modules['module'].orthonet(pruning_error, query)
+            start = NormalDist().cdf(con_list[0])
+            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
+                                                                           device=mu.device))
+
+            p = find_p(predicted, y_true)[torch.squeeze(m)]
+            ps.append(reduce(p))
+            sort = sorted(list(p.cpu().data.numpy()))
+            print("P-value", i, "Min", ps[-1], "Mean", torch.mean(p), sort[len(sort) // 3], sort[2 * len(sort) // 3])
+
+            query[:, :2][mask2] = y_true[mask2]
+            query[:, 2:][mask2] = y_true[mask2]
+            output[:, :2][mask2] = delta[mask2]
+            output[:, 2:][mask2] = delta[mask2]
+
+        print("Overall p", reduce(ps))
+
+        return reduce(ps)
 
 
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):

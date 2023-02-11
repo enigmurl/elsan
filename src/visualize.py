@@ -105,6 +105,7 @@ class VisualizeSigma(Scene):
             im, prev_error = model(xx, prev_error)
             samp = ran_sample(model, im, prev_error,
                        frames[:, 60:62]).cpu().data.numpy()
+            p_value(model, im, prev_error, frames[:, 60:62])
             im = im.cpu().data.numpy()
 
             pm, mask = mask_tensor(64)
@@ -125,10 +126,8 @@ class VisualizeSigma(Scene):
                     prev_error = torch.nn.functional.pad(prev_error, (pad, pad, pad, pad))
                     im, prev_error = model(xx, prev_error)
                     xx = torch.cat([xx[:, 2:], im], 1)
-                    contained = contains_sample(model, im, prev_error,
-                                                frames[:, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].to(device))
                     samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                    print("Step model ", contained)
+                    p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
                 else:
                     samp = ran_sample(model, im, prev_error, frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
 
