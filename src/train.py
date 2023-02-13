@@ -2,7 +2,6 @@ import torch
 import numpy as np
 from torch.utils import data
 from util import get_device
-from penalty import p_full_in
 
 device = get_device()
 

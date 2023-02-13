@@ -6,31 +6,6 @@ from util import get_device, mask_tensor
 device = get_device()
 
 
-def p_full_in(actual_mu, actual_sigma, expected):
-    return
-    # pos_dif = torch.abs(actual_mu - expected)
-    # real_dif = actual_sigma - pos_dif
-    #
-    # count_in = torch.sum(real_dif > 0, dim=list(range(1, len(real_dif.shape)))).float()
-    # full_in = count_in == torch.numel(real_dif[0])
-    # p_in = torch.sum(full_in).float() / real_dif.shape[0]
-    #
-    # print("full", p_in, "channel", torch.sum(real_dif > 0) / torch.numel(real_dif),
-    #       "min predicted off", torch.max(actual_sigma),
-    #       "min actual off", torch.max(pos_dif),
-    #       "average node", torch.mean(torch.abs(actual_mu)),
-    #       "batch", len(actual_mu))
-    #
-    # return p_in.cpu().data.numpy()
-
-
-def c_sample(max_p=NormalDist().cdf(4)):
-    return -1
-    in_p = torch.rand(1) * (2 * max_p - 1) + (1 - max_p)
-    delta = abs(in_p - 0.5) * 2
-    return NormalDist().inv_cdf(delta)
-
-
 class BigErrorLoss(torch.nn.Module):
     def __init__(self, noise_z=0.001, drift=0.03):
         super(BigErrorLoss, self).__init__()

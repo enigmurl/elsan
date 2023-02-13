@@ -20,15 +20,16 @@ class HammerSchedule:
         buffer = self.hammer_buffer * self._fallof(self.hammer_decay)
         scalar = self.hammer * self._fallof(self.hammer_decay)
 
-        t1 = torch.mean(torch.square(torch.relu(true_point - predicted_max + buffer))) * scalar
-
+        diff = torch.sqrt(buffer + torch.relu(true_point - predicted_max + buffer))
+        t1 = torch.square(torch.mean(diff)) * scalar
         return t1
 
     def lorris_loss(self, true_point, predicted_max):
         buffer = self.lorris_buffer * self._fallof(self.lorris_decay)
         scalar = self.lorris * self._fallof(self.lorris_decay)
 
-        t1 = torch.mean(torch.square(torch.relu(predicted_max - true_point + buffer))) * scalar
+        diff = torch.sqrt(buffer + torch.relu(predicted_max - true_point + buffer))
+        t1 = torch.square(torch.mean(diff)) * scalar
 
         return t1
 
