@@ -7,7 +7,7 @@ device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.001, drift=0.03):
+    def __init__(self, noise_z=0.0001, drift=0.05):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
@@ -55,7 +55,7 @@ class BigErrorLoss(torch.nn.Module):
                 mean = (comp + curr) / 2
 
                 print(f"Width {i} {float(torch.sqrt(torch.mean(torch.square(comp - curr)))):4f}")
-                # loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
+                loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
 
             print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
 

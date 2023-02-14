@@ -10,7 +10,7 @@ from util import *
 device = get_device(no_mps=False)
 
 DIR = "../data/data_64/sample_"
-INDICES = range(9800, 9850)
+INDICES = range(0, 6000)
 TOFFSET = 30
 
 COLOR_MAP = "3b1b_colormap"
