@@ -59,7 +59,8 @@ class BigErrorLoss(torch.nn.Module):
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            loss += self.drift * torch.mean(torch.square((compare - likely).reshape(-1, 128) - scaled))
+            if self.hammer.step_num > 1200:
+                loss += self.dist * torch.mean(torch.square((compare - likely).reshape(-1, 128) - scaled))
 
             if p_value < p_true:
                 loss += hammer.hammer_loss(compare, curr)
