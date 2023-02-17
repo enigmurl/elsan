@@ -7,12 +7,17 @@ device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.0001, drift=0.05):
+    def __init__(self, noise_z=0.0001, dist=0.05, drift=0.05):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
+        self.dist = dist
 
     def forward(self, orthonet, actual_pruning, expected, con_list, hammer, fnum):
+        # get p values and see if that helps it converge more easily
+        # go through each instance and compute pixel wise errors. If error is large, we assume p value is large
+        # if we can get the pvalue rights, then everything else works perfectly???
+        # anyways lets try that!!
         loss = 0
 
         prev, mask = mask_tensor(expected.shape[-1])
@@ -33,16 +38,31 @@ class BigErrorLoss(torch.nn.Module):
 
         # add some noise to query in previous portions to make it more robust
         predicted = orthonet(actual_pruning, query)
-
+        likely = predicted[:, 2 * len(con_list) // 2: 2 * len(con_list) // 2 + 2]
         compare = expected[mask2]
+
+        # this really has potential
+        deltas = (compare - likely)[mask2].reshape(-1, 128)
+        std = torch.std(deltas, dim=1)
+
+        deltas /= std
+
+        sorted_vals = torch.sort(torch.flatten(deltas))
+        sorted_inds = torch.argsort(torch.flatten(deltas)).float()
+        pvalue = sorted_inds / torch.numel(sorted_inds)
 
         for i, c in enumerate(con_list):
             curr = predicted[:, 2 * i: 2 * (i + 1)][mask2]
+            p_true = NormalDist().cdf(c)
+            target_ind = int(p_true * torch.numel(sorted_inds))
+            target_delta = sorted_vals[target_ind]
+            scaled = target_delta * std
 
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            p_true = NormalDist().cdf(c)
+            loss += self.drift * torch.mean(torch.square((compare - likely)[mask2] - scaled))
+
             if p_value < p_true:
                 loss += hammer.hammer_loss(compare, curr)
             else:
