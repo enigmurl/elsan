@@ -10,7 +10,7 @@ from util import *
 device = get_device(no_mps=False)
 
 DIR = "../data/data_64/sample_"
-INDICES = range(0, 6000)
+INDICES = range(0, 5000)
 TOFFSET = 30
 
 COLOR_MAP = "3b1b_colormap"
@@ -51,8 +51,7 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        index = np.random.random_integers(INDICES.start, INDICES.stop)
-        ret = torch.load(DIR + str(index) + ".pt")
+        ret = torch.load(DIR + "2421" + ".pt")
         return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
 
     def model(self):

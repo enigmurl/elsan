@@ -7,7 +7,7 @@ device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.0001, dist=0.05, drift=0.05):
+    def __init__(self, noise_z=0.02, dist=0.05, drift=0.05):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
@@ -59,7 +59,7 @@ class BigErrorLoss(torch.nn.Module):
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            if self.hammer.step_num > 1200:
+            if hammer.step_num > 1200:
                 loss += self.dist * torch.mean(torch.square((compare - likely).reshape(-1, 128) - scaled))
 
             if p_value < p_true:

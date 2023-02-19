@@ -57,8 +57,8 @@ def ran_sample(model, pruning_error, expected):
             mask4 = torch.tile(real_mask, (4, 1, 1))
             query[:, :2][real_prev] = expected[real_prev]
             query[:, 2:][real_prev] = expected[real_prev]
-            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
+            query[0, :2][real_prev[0]] = expected[0, :2][real_prev[0]]
+            query[0, 2:][real_prev[0]] = expected[0, :2][real_prev[0]]
 
             # compute query
             query[mask4] = -query[mask4]
@@ -68,13 +68,13 @@ def ran_sample(model, pruning_error, expected):
             start = 0.5
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
-            query[:, :2][mask2] = delta[mask2]
-            query[:, 2:][mask2] = delta[mask2]
+            query[:, :2][mask2] = expected[mask2]
+            query[:, 2:][mask2] = expected[mask2]
             output[:, :2][mask2] = delta[mask2]
             output[:, 2:][mask2] = delta[mask2]
 
-            rmse.append(torch.mean(torch.square(query[0, :2][mask2[0]] - expected[0][mask2[0]])))
-            rmse_1.append(torch.mean(torch.square(query[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
+            rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
+            rmse_1.append(torch.mean(torch.square(output[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
             print(f"RMSE 0 {i} {torch.sqrt(rmse[-1]):4f}")
             print(f"RMSE 1 {i} {torch.sqrt(rmse_1[-1]):4f}")
 
