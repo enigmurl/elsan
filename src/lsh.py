@@ -24,6 +24,7 @@ def local_hash(frame, planes):
 
 def lsh(frames):
     planes = rand_vector(ENTROPY, torch.numel(frames[0]))
+    distances = torch.rand()  # could potentially use something more advanced here?
     # generate a bunch of hyperplanes
     # create a bit string based on hyperplane results
     map = {}
