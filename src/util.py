@@ -10,6 +10,10 @@ def get_device(no_mps=True):
     return torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 
+def mask_indices(batch, elems):
+    return (torch.rand(batch) ** 3 * elems).long()
+
+
 def _recurse(mask, level, rmin, rmax, cmin, cmax):
     if rmin > rmax or cmin > cmax:
         return -1

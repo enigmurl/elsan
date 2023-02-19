@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from statistics import NormalDist
-from util import get_device, mask_tensor
+from util import get_device, mask_tensor, mask_indices
 
 device = get_device()
 
@@ -21,7 +21,7 @@ class BigErrorLoss(torch.nn.Module):
         loss = 0
 
         prev, mask = mask_tensor(expected.shape[-1])
-        batch_masks = (torch.rand(len(expected)) * len(prev)).long()
+        batch_masks = mask_indices(len(expected), len(prev))
         real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
         # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
         # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
@@ -59,7 +59,7 @@ class BigErrorLoss(torch.nn.Module):
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            if hammer.step_num > 1200:
+            if hammer.step_num > 240:
                 loss += self.dist * torch.mean(torch.square((compare - likely).reshape(-1, 128) - scaled))
 
             if p_value < p_true:

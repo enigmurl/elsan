@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from statistics import *
-from util import get_device, mask_tensor
+from util import get_device, mask_tensor, mask_indices
 
 device = get_device()
 
@@ -40,7 +40,7 @@ def ran_sample(model, pruning_error, expected):
                        torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
 
         for i in range(64):
-            batch = (torch.rand(63, device=expected.device) * 64).long()
+            batch = mask_indices(63, 64).to(expected.device)
             masks[1:, i] = masks_[1][batch]
             prevs[1:, i] = masks_[0][batch]
 
@@ -57,8 +57,8 @@ def ran_sample(model, pruning_error, expected):
             mask4 = torch.tile(real_mask, (4, 1, 1))
             query[:, :2][real_prev] = expected[real_prev]
             query[:, 2:][real_prev] = expected[real_prev]
-            query[0, :2][real_prev[0]] = expected[0, :2][real_prev[0]]
-            query[0, 2:][real_prev[0]] = expected[0, :2][real_prev[0]]
+            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
             # compute query
             query[mask4] = -query[mask4]
