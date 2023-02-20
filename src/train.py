@@ -38,6 +38,7 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
         e_loss = 0
         xx = xx.to(device).detach()
         yy = yy.to(device).detach()
+        yy = yy[:, :max(1, min(yy.shape[1], hammer.step_num / 240))]
         error = base(xx)
 
         for f, y in enumerate(yy.transpose(0, 1)):

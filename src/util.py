@@ -11,7 +11,7 @@ def get_device(no_mps=True):
 
 
 def mask_indices(batch, elems):
-    return (torch.rand(batch) ** 3 * elems).long()
+    return (torch.rand(batch) ** 4 * elems).long()
 
 
 def _recurse(mask, level, rmin, rmax, cmin, cmax):
