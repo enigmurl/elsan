@@ -6,3 +6,5 @@ virtualenv
 *.swp
 .DS_Store
 *.pem
+
+src/videos
