@@ -5,7 +5,7 @@ import numpy as np
 import time
 from model import Orthonet, con_list, ran_sample
 from penalty import DivergenceLoss, BigErrorLoss
-from train import Dataset, train_epoch, eval_epoch, test_epoch
+from train import ClusteredDataset, Dataset, train_epoch, eval_epoch, test_epoch
 from util import get_device
 from hammer_scheduler import HammerSchedule
 from statistics import NormalDist
@@ -50,7 +50,6 @@ if __name__ == '__main__':
     #    param.data = torch.tensor(src, device=device)
     #    print(np.mean(np.abs(src)))
     # model = torch.load('model.pt')
-    print("Hash", hash(model))
     base = model.base
     trans = model.transition
     query = model.query
@@ -58,7 +57,7 @@ if __name__ == '__main__':
     # model.eval()
     frames = torch.cat([load_rand() for _ in range(64)], dim=0)
     xx = frames[:, :60].to(device)
-    train_set = Dataset(train_indices, input_length + time_range - 1, 30, output_length, train_direc, True)
+    train_set = ClusteredDataset("../data/lsh_indices.pt", train_direc, input_length + time_range - 1, 30, output_length, True)
     valid_set = Dataset(valid_indices, input_length + time_range - 1, 30, 6, test_direc, True)
     # workers causing bugs on m1x, likely due to lack of memory
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
@@ -72,7 +71,6 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(model.parameters(), learning_rate, betas=(0.9, 0.999), weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
-
 
     train_emse = []
     valid_emse = []

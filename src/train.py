@@ -1,9 +1,46 @@
+import random
+
 import torch
 import numpy as np
 from torch.utils import data
 from util import get_device
 
 device = get_device()
+
+
+class ClusteredDataset(data.Dataset):
+    def __init__(self, index, direc, input_length, mid, output_length, stack_x):
+        super(ClusteredDataset, self).__init__()
+        self.map = torch.load(index)
+        self.direc = direc
+        self.input_length = input_length
+        self.mid = mid
+        self.output_length = output_length
+        self.stack_x = stack_x
+        self.direc = direc
+
+    def __len__(self):
+        return len(self.map)
+
+    def __getitem__(self, index):
+        batch = self.map[index]
+        random.shuffle(batch)
+        xs = []
+        ys = []
+        for x in batch:
+            org = torch.load(self.direc + str(int(x)) + ".pt")
+            y = org[self.mid:(self.mid + self.output_length)]
+            if self.stack_x:
+                x = org[(self.mid - self.input_length):self.mid]. \
+                    reshape(-1, y.shape[-2], y.shape[-1])
+            else:
+                x = org[(self.mid - self.input_length):self.mid]
+            xs.append(x.float())
+            ys.append(y.float())
+
+        xs = torch.stack(xs)
+        ys = torch.stack(ys)
+        return xs, ys
 
 
 class Dataset(data.Dataset):
@@ -36,9 +73,13 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
 
     for b, (xx, yy) in enumerate(train_loader):
         e_loss = 0
-        xx = xx.to(device).detach()
+        xx = xx.to(device).detach()  # (batch, group, time, channels, h, w)
         yy = yy.to(device).detach()
-        yy = yy[:, :max(1, min(yy.shape[1], hammer.step_num / 240))]
+        yy = yy[:, :, :max(1, min(yy.shape[1], hammer.step_num // 240))]
+
+        xx = xx[int(torch.rand(1) * xx.shape[0])]
+        yy = yy[int(torch.rand(1) * yy.shape[0])]
+
         error = base(xx)
 
         for f, y in enumerate(yy.transpose(0, 1)):

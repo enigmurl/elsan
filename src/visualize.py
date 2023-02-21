@@ -51,7 +51,7 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        ret = torch.load(DIR + str(np.random.randint(6000, 7700)) + ".pt")
+        ret = torch.load(DIR + str(np.random.randint(5000, 6000)) + ".pt")
         return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
 
     def model(self):

@@ -7,7 +7,7 @@ device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.01, dist=0.05, drift=0.05):
+    def __init__(self, noise_z=0.01, dist=1, drift=1):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
