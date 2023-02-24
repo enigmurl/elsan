@@ -65,7 +65,7 @@ def ran_sample(model, pruning_error, expected):
 
             predicted = model(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
-            start = 0.25
+            start = 0.5
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
             query[:, :2][mask2] = expected[mask2]

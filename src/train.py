@@ -25,22 +25,16 @@ class ClusteredDataset(data.Dataset):
     def __getitem__(self, index):
         batch = self.map[index]
         random.shuffle(batch)
-        xs = []
-        ys = []
-        for x in batch:
-            org = torch.load(self.direc + str(int(x)) + ".pt")
-            y = org[self.mid:(self.mid + self.output_length)]
-            if self.stack_x:
-                x = org[(self.mid - self.input_length):self.mid]. \
-                    reshape(-1, y.shape[-2], y.shape[-1])
-            else:
-                x = org[(self.mid - self.input_length):self.mid]
-            xs.append(x.float())
-            ys.append(y.float())
 
-        xs = torch.stack(xs)
-        ys = torch.stack(ys)
-        return xs, ys
+        org = torch.load(self.direc + str(batch[0]) + ".pt")
+        y = org[self.mid:(self.mid + self.output_length)]
+        if self.stack_x:
+            x = org[(self.mid - self.input_length):self.mid]. \
+                reshape(-1, y.shape[-2], y.shape[-1])
+        else:
+            x = org[(self.mid - self.input_length):self.mid]
+
+        return x.float(), y.float()
 
 
 class Dataset(data.Dataset):
@@ -75,10 +69,7 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
         e_loss = 0
         xx = xx.to(device).detach()  # (batch, group, time, channels, h, w)
         yy = yy.to(device).detach()
-        yy = yy[:, :, :max(1, min(yy.shape[1], hammer.step_num // 240))]
-
-        xx = xx[int(torch.rand(1) * xx.shape[0])]
-        yy = yy[int(torch.rand(1) * yy.shape[0])]
+        yy = yy[:, :max(1, min(yy.shape[1], hammer.step_num // 240))]
 
         error = base(xx)
 

@@ -3,8 +3,9 @@
 # cyclic data is actually really good for this, which appears to be in the data set so we should be good actually
 import torch
 
-ENTROPY = 36
+ENTROPY = 42
 DIST_MAX = 2
+
 
 def rand_vector(count, dimension):
     # use normal distributions
@@ -27,10 +28,10 @@ def lsh(frames):
     distances = torch.rand(ENTROPY) * DIST_MAX  # could potentially use something more advanced here?
     # generate a bunch of hyperplanes
     # create a bit string based on hyperplane results
-    map = {}
+    dic = {}
     for i, f in enumerate(frames):
         key = local_hash(f, planes, distances)
-        map.setdefault(key, [])
-        map[key].append(i)
+        dic.setdefault(key, [])
+        dic[key].append(i)
 
-    return map
+    return dic
