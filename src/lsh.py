@@ -3,7 +3,7 @@
 # cyclic data is actually really good for this, which appears to be in the data set so we should be good actually
 import torch
 
-ENTROPY = 42
+ENTROPY = 32
 DIST_MAX = 2
 
 

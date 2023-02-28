@@ -38,7 +38,7 @@ class BigErrorLoss(torch.nn.Module):
 
         # add some noise to query in previous portions to make it more robust
         predicted = orthonet(actual_pruning, query)
-        likely = predicted[:, 2 * len(con_list) // 2: 2 * len(con_list) // 2 + 2][mask2]
+        likely = predicted[:, 2 * len(con_list) // 2: 2 * len(con_list) // 2 + 2][mask2].detach()
         compare = expected[mask2]
 
         # this really has potential
@@ -59,7 +59,7 @@ class BigErrorLoss(torch.nn.Module):
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            if hammer.step_num > 240:
+            if hammer.step_num > 960:
                 loss += self.dist * torch.mean(torch.square((curr - likely).reshape(-1, 128) - scaled))
 
             if p_value < p_true:

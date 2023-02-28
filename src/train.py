@@ -26,7 +26,7 @@ class ClusteredDataset(data.Dataset):
         batch = self.map[index]
         random.shuffle(batch)
 
-        org = torch.load(self.direc + str(batch[0]) + ".pt")
+        org = torch.load(self.direc + str(int(batch[0])) + ".pt")
         y = org[self.mid:(self.mid + self.output_length)]
         if self.stack_x:
             x = org[(self.mid - self.input_length):self.mid]. \
