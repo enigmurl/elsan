@@ -11,7 +11,7 @@ device = get_device()
 class ClusteredDataset(data.Dataset):
     def __init__(self, index, direc, input_length, mid, output_length, stack_x):
         super(ClusteredDataset, self).__init__()
-        self.map = torch.load(index)
+        self.map = index
         self.direc = direc
         self.input_length = input_length
         self.mid = mid
@@ -24,9 +24,11 @@ class ClusteredDataset(data.Dataset):
 
     def __getitem__(self, index):
         batch = self.map[index]
-        random.shuffle(batch)
 
-        org = torch.load(self.direc + str(int(batch[0])) + ".pt")
+        ensemble_u = torch.load(self.direc + "u_t" + str(int(batch)) + ".pt")
+        ensemble_v = torch.load(self.direc + "v_t" + str(int(batch)) + ".pt")
+
+        org = torch.load(self.direc + str(int(batch)) + ".pt")
         y = org[self.mid:(self.mid + self.output_length)]
         if self.stack_x:
             x = org[(self.mid - self.input_length):self.mid]. \
