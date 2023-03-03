@@ -9,14 +9,13 @@ device = get_device()
 
 
 class ClusteredDataset(data.Dataset):
-    def __init__(self, index, direc, input_length, mid, output_length, stack_x):
+    def __init__(self, index, direc, input_length, mid, output_length):
         super(ClusteredDataset, self).__init__()
         self.map = index
         self.direc = direc
         self.input_length = input_length
         self.mid = mid
         self.output_length = output_length
-        self.stack_x = stack_x
         self.direc = direc
 
     def __len__(self):
@@ -25,18 +24,14 @@ class ClusteredDataset(data.Dataset):
     def __getitem__(self, index):
         batch = self.map[index]
 
-        ensemble_u = torch.load(self.direc + "u_t" + str(int(batch)) + ".pt")
-        ensemble_v = torch.load(self.direc + "v_t" + str(int(batch)) + ".pt")
+        ensemble = torch.load(self.direc + str(int(batch)) + ".pt")
+        random.shuffle(ensemble[0])
+        random.shuffle(ensemble[1])
 
-        org = torch.load(self.direc + str(int(batch)) + ".pt")
-        y = org[self.mid:(self.mid + self.output_length)]
-        if self.stack_x:
-            x = org[(self.mid - self.input_length):self.mid]. \
-                reshape(-1, y.shape[-2], y.shape[-1])
-        else:
-            x = org[(self.mid - self.input_length):self.mid]
+        # now it's [time, batchnum, channel, row, col]
+        ensemble = torch.transpose(ensemble, 0, 2)
 
-        return x.float(), y.float()
+        return torch.reshape(ensemble[:self.mid, 0].float(), (-1, *ensemble.shape[-2:])), ensemble[self.mid:].float()
 
 
 class Dataset(data.Dataset):
@@ -61,7 +56,7 @@ class Dataset(data.Dataset):
                 reshape(-1, y.shape[-2], y.shape[-1])
         else:
             x = org[(self.mid-self.input_length):self.mid]
-        return x.float(), y.float()
+        return x[:, 0].float(), y.float()
 
 
 def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_loss_fun):

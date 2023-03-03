@@ -7,7 +7,7 @@ device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.01, dist=0.05, drift=1):
+    def __init__(self, noise_z=0.005, dist=0.05, drift=1):
         super(BigErrorLoss, self).__init__()
         self.noise_z = noise_z
         self.drift = drift
@@ -30,51 +30,56 @@ class BigErrorLoss(torch.nn.Module):
         mask2 = torch.tile(real_mask, (2, 1, 1))
 
         # compute query
-        query = torch.full((len(expected), 4, *expected.shape[2:]), -5.0, device=device)
+        # for the mask, take a submask of which elements of the ensemble we want to use in doing the interval.
+        submask = max(1, int(torch.rand(1) * expected.shape[0]))
+        ensemble = expected[:, :submask]
+        mins = torch.min(ensemble, dim=1).values
+        maxs = torch.max(ensemble, dim=1).values
+
+        query = torch.full((len(expected), 4, *expected.shape[-2:]), -5.0, device=device)
         query[:, 2:] = 5
         noise = torch.normal(0, self.noise_z * (fnum + 1), expected.shape, device=device)
-        query[:, 2:][real_prev] = query[:, :2][real_prev] = (expected + noise)[real_prev]
+        query[:, 2:][real_prev] = mins[real_prev]
+        query[:, :2][real_prev] = maxs[real_prev]
         query[mask4] = -query[mask4]
 
         # add some noise to query in previous portions to make it more robust
         predicted = orthonet(actual_pruning, query)
-        likely = predicted[:, 2 * len(con_list) // 2: 2 * len(con_list) // 2 + 2][mask2].detach()
-        compare = expected[mask2]
+        compare = torch.mean(expected, dim=1)[mask2] # eliminate ensemble
 
-        # this really has potential
-        deltas = (compare - likely).reshape(-1, 128)
-        std = torch.unsqueeze(torch.std(deltas, dim=1), dim=1)
+        # anyways, think about how to generate proper p values if we have everything?
+        # first level is very easy
+        # we can also do interval?, somewhat easily?, but is that what we really want?
+        # i think that's the best we're going to get...
+        # we can also do the general hammer loss
 
-        deltas = deltas / std
-
-        sorted_vals, _ = torch.sort(torch.flatten(deltas))
+        ensemble = torch.sort(ensemble, dim=1).values
 
         for i, c in enumerate(con_list):
             curr = predicted[:, 2 * i: 2 * (i + 1)][mask2]
             p_true = NormalDist().cdf(c)
-            target_ind = int(p_true * torch.numel(sorted_vals))
-            target_delta = sorted_vals[target_ind]
-            scaled = target_delta * std
 
             greater = curr >= compare
             p_value = torch.sum(greater) / torch.numel(greater)
 
-            if hammer.step_num > 960:
-                loss += self.dist * torch.mean(torch.square((curr - likely).reshape(-1, 128) - scaled))
+            p_index = int(p_true * ensemble.shape[1])
+            target = ensemble[:, p_index][mask2]
+
+            loss += self.drift * torch.sqrt(torch.mean(torch.square(target - curr)))
 
             if p_value < p_true:
                 loss += hammer.hammer_loss(compare, curr)
             else:
                 loss += hammer.lorris_loss(compare, curr)
 
-            if i <= len(con_list) // 2:
-                prime = len(con_list) - 1 - i
-                comp = predicted[:, 2 * prime: 2 * (prime + 1)][mask2]
-
-                mean = (comp + curr) / 2
-
-                print(f"Width {i} {float(torch.sqrt(torch.mean(torch.square(comp - curr)))):4f}")
-                loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
+            # if i <= len(con_list) // 2:
+            #     prime = len(con_list) - 1 - i
+            #     comp = predicted[:, 2 * prime: 2 * (prime + 1)][mask2]
+            #
+            #     mean = (comp + curr) / 2
+            #
+            #     print(f"Width {i} {float(torch.sqrt(torch.mean(torch.square(comp - curr)))):4f}")
+            #     loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
 
             print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
 

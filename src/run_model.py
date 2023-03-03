@@ -14,29 +14,29 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 device = get_device()
 
-train_direc = "../data/data_64/sample_"
-test_direc = "../data/data_64/sample_"
+train_direc = "../data/ensemble/"
+test_direc = "../data/ensemble/"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
-time_range = 6
+time_range = 1
 output_length = 12
-input_length = 25
+input_length = 6
 learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
-batch_size = 64
+batch_size = 16
 pruning_size = 16
 coef = 0
 
-train_indices = list(range(0, 6000))
-valid_indices = list(range(6000, 7700))
+train_indices = list(range(0, 570))
+valid_indices = list(range(540, 570))
 test_indices = list(range(7700, 9800))
 
 
 def load_rand():
-    index = np.random.random_integers(6000, 7700)
+    index = np.random.random_integers(0, 600)
     ret = torch.load(train_direc + str(index) + ".pt")
-    return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
+    return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
 
 
 if __name__ == '__main__':
@@ -56,9 +56,9 @@ if __name__ == '__main__':
     model = nn.DataParallel(model)
     # model.eval()
     frames = torch.cat([load_rand() for _ in range(64)], dim=0)
-    xx = frames[:, :60].to(device)
-    train_set = ClusteredDataset("../data/lsh_indices.pt", train_direc, input_length + time_range - 1, 30, output_length, True)
-    valid_set = Dataset(valid_indices, input_length + time_range - 1, 30, 6, test_direc, True)
+    xx = frames[:, :12].to(device)
+    train_set = ClusteredDataset(train_indices, train_direc, input_length, 6, output_length)
+    valid_set = Dataset(valid_indices, input_length + time_range - 1, 6, 6, test_direc, True)
     # workers causing bugs on m1x, likely due to lack of memory
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
     valid_loader = data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -87,7 +87,7 @@ if __name__ == '__main__':
 
         model.train()
         error = base(xx)
-        ran_sample(query, error, frames[:, 60:62])
+        ran_sample(query, error, frames[:, 12:14])
         # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
         # im = model(xx)
         # ran_sample(model, im, prev_error,
@@ -95,10 +95,11 @@ if __name__ == '__main__':
         emse = train_epoch(train_loader, base, trans, query, optimizer, hammer, con_list, error_fun)
 
         train_emse.append(emse)
-
-        model.eval()
-        emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
-        valid_emse.append(emse)
+        #
+        # model.eval()
+        # emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
+        # valid_emse.append(emse)
+        valid_emse = [min_mse * 0.5]
 
         if valid_emse[-1] < min_mse:
             min_mse = valid_emse[-1]

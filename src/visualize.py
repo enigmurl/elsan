@@ -51,10 +51,8 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        u = torch.load("../data/ensemble/u_t0.pt")
-        v = torch.load("../data/ensemble/v_t0.pt")
-        return u, v
-        # return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
+        ret = torch.load(DIR + str(np.random.randint(5000, 6000)) + ".pt")
+        return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
 
     def model(self):
         model = Orthonet(input_channels=25 * 2,
@@ -63,15 +61,14 @@ class VisualizeSigma(Scene):
                          dropout_rate=0,
                          time_range=6
                          ).to(device)
-        for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
+        for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('mps'))):
             param.data = torch.tensor(src)
         return model.to(device)
 
     def construct(self) -> None:
         self.wait(0.01)
 
-        u, v = self.load_rand()
-        # frames = torch.cat([self.load_rand() for _ in range(64)], dim=0)
+        frames = torch.cat([self.load_rand() for _ in range(64)], dim=0)
         model = self.model()
         base = model.base
         trans = model.transition
@@ -107,61 +104,57 @@ class VisualizeSigma(Scene):
             t = 0
             fnum = -1
             raw_frame = 0
-            # xx = frames[:, :TOFFSET * 2].to(device)
-            # error = base(xx)
-            # samp = ran_sample(query, error,
-            #            frames[:, 60:62]).cpu().data.numpy()
+            xx = frames[:, :TOFFSET * 2].to(device)
+            error = base(xx)
+            samp = ran_sample(query, error,
+                       frames[:, 60:62]).cpu().data.numpy()
             # p_value(model, im, prev_error, frames[:, 60:62])
-            # pm, mask = mask_tensor(64)
+            pm, mask = mask_tensor(64)
 
             def update(m, dt):
-                nonlocal t, fnum, raw_frame # xx, error, samp, raw_frame
+                nonlocal t, fnum, xx, error, samp, raw_frame
                 t += dt
                 raw_frame = int(t / (1 / 30))
                 prev = fnum
                 fnum = int(t / FRAME_DT)
 
-                # print("FNUM", fnum, fnum * 2 + 1 + TOFFSET * 2, frames.shape[1], fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
-                # if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
-                #     return
+                print("FNUM", fnum, fnum * 2 + 1 + TOFFSET * 2, frames.shape[1], fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
+                if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
+                    return
 
-                # if fnum > prev:
-                #     xx = frames[:, :TOFFSET * 2].to(device)
-                #     error = trans(error)
-                #     samp = ran_sample(query, error,
-                #                       frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                #     # p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
-                # else:
-                #     samp = ran_sample(query, error,
-                #                       frames[:,2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                #
-                #     sx = samp[0, 0]
-                #     sy = samp[0, 1]
-                #
-                #     xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-                #     ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-                #     s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-                #     return
+                if fnum > prev:
+                    xx = frames[:, :TOFFSET * 2].to(device)
+                    error = trans(error)
+                    samp = ran_sample(query, error,
+                                      frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
+                    # p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
+                else:
+                    samp = ran_sample(query, error,
+                                      frames[:,2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
 
-                # tx = frames[0, 2 * fnum + 0 + TOFFSET * 2].cpu().data.numpy()
-                # ty = frames[0, 2 * fnum + 1 + TOFFSET * 2].cpu().data.numpy()
+                    sx = samp[0, 0]
+                    sy = samp[0, 1]
+
+                    xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                    ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                    s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                    return
+
+                tx = frames[0, 2 * fnum + 0 + TOFFSET * 2].cpu().data.numpy()
+                ty = frames[0, 2 * fnum + 1 + TOFFSET * 2].cpu().data.numpy()
 
                 # real_im = im.cpu().data.numpy()
                 # mx = real_im[0, 0]
                 # my = real_im[0, 1]
 
-                # sx = samp[0, 0]
-                # sy = samp[0, 1]
+                sx = samp[0, 0]
+                sy = samp[0, 1]
 
-                # print("mine rmse", fnum,
-                #       np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+                print("mine rmse", fnum,
+                      np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
                 # print("tfnt rmse", fnum,
                 #       np.sqrt(np.mean(np.square(
                 #           real_im[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
-                if (fnum >= 10):
-                    return
-                tx = u[fnum]
-                ty = v[fnum]
 
                 xt_frame.become(frame("x true", tx, ORIGIN)).shift(2 * LEFT + 2.5 * UP)
                 yt_frame.become(frame("y true", ty, ORIGIN)).shift(2.5 * UP)
@@ -171,36 +164,36 @@ class VisualizeSigma(Scene):
                 # ym_frame.become(frame("y mean", my, ORIGIN))
                 # m_frame.become(vector_frame(m_axis, mx, my)).shift(2 * RIGHT)
                 #
-                # xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-                # ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-                # s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
 
                 # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
-            # def root_decomp(m, dt):
-            #     nonlocal t, fnum, raw_frame # xx, samp, raw_frame
-            #     t += dt
-            #     raw_frame = int(t / (1 / 30))
-            #     prev = fnum
-            #     fnum = int(t / FRAME_DT)
-            #
-            #     sx = samp[0, 0].copy()
-            #     sy = samp[0, 1].copy()
-            #
-            #     if raw_frame < 64:
-            #         sx[~pm[raw_frame]] = -5
-            #         sy[~pm[raw_frame]] = -5
-            #
-            #     xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-            #     ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-            #     s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-            #
-            #     # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
+            def root_decomp(m, dt):
+                nonlocal t, fnum, xx, samp, raw_frame
+                t += dt
+                raw_frame = int(t / (1 / 30))
+                prev = fnum
+                fnum = int(t / FRAME_DT)
+
+                sx = samp[0, 0].copy()
+                sy = samp[0, 1].copy()
+
+                if raw_frame < 64:
+                    sx[~pm[raw_frame]] = -5
+                    sy[~pm[raw_frame]] = -5
+
+                xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
+                ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
+                s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+
+                # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
 
             self.add(root)
 
             root.add_updater(update)
-            self.wait(10 * FRAME_DT + 0.2)
+            self.wait((frames.shape[1] - TOFFSET * 2) / 2 * FRAME_DT + 0.2)
 
             # root.add_updater(root_decomp)
             # self.wait(2.5)

@@ -37,16 +37,16 @@ def _mod(a, b):
 
 
 def _max_index(tensor):
-    best = np.random.randint(0, tensor.shape[1]), np.random.randint(0, tensor.shape[2])
+    best = np.random.randint(0, tensor.shape[0]), np.random.randint(0, tensor.shape[1])
     wd = 0
-    for r in range(tensor.shape[1]):
-        for c in range(tensor.shape[2]):
+    for r in range(tensor.shape[0]):
+        for c in range(tensor.shape[1]):
             if tensor[r][c]:
                 pass
-            bd = tensor.shape[1] + tensor.shape[2]
-            for r1 in range(-tensor.shape[1] // 2, tensor.shape[1] // 2 + 1):
-                for c1 in range(-tensor.shape[2] // 2, tensor.shape[2] // 2 + 1):
-                    if tensor[_mod(r1 + r, tensor.shape[1])][_mod(c1 + c, tensor.shape[2])]:
+            bd = tensor.shape[0] + tensor.shape[1]
+            for r1 in range(-tensor.shape[0] // 2, tensor.shape[0]):
+                for c1 in range(-tensor.shape[1] // 2, tensor.shape[1]):
+                    if tensor[_mod(r1 + r, tensor.shape[0])][_mod(c1 + c, tensor.shape[1])]:
                         if abs(r1) + abs(c1) < bd:
                             bd = abs(r1) + abs(c1)
             if bd > wd:
@@ -57,13 +57,11 @@ def _max_index(tensor):
 
 
 @cache
-def mask_tensor(r, c, scale=10):
+def mask_tensor(n):
     device = get_device()
 
-    n = r * c / (scale * scale)
-
-    mask = torch.zeros((n, r, c), dtype=torch.uint8).bool()
-    prev = torch.zeros((n, r, c), dtype=torch.uint8).bool()
+    mask = torch.zeros((n, n, n), dtype=torch.uint8).bool()
+    prev = torch.zeros((n, n, n), dtype=torch.uint8).bool()
     # 4 then 16 then 64, then ...
 
     block = int(n ** 0.5)
