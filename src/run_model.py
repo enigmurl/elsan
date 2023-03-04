@@ -34,8 +34,8 @@ test_indices = list(range(7700, 9800))
 
 
 def load_rand():
-    index = np.random.random_integers(0, 600)
-    ret = torch.load(train_direc + str(index) + ".pt")
+    index = np.random.random_integers(0, 550)
+    ret = torch.load(train_direc + str(index) + ".pt")[:, 0]
     return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
 
 
@@ -86,6 +86,7 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
+        print(xx.shape)
         error = base(xx)
         ran_sample(query, error, frames[:, 12:14])
         # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)

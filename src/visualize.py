@@ -11,7 +11,7 @@ device = get_device(no_mps=False)
 
 DIR = "../data/data_64/sample_"
 INDICES = range(6000, 7700)
-TOFFSET = 30
+TOFFSET = 6
 
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
@@ -51,15 +51,16 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        ret = torch.load(DIR + str(np.random.randint(5000, 6000)) + ".pt")
-        return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device)
+        index = np.random.random_integers(0, 550)
+        ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, 0]
+        return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
 
     def model(self):
-        model = Orthonet(input_channels=25 * 2,
+        model = Orthonet(input_channels=12,
                          pruning_size=16,
                          kernel_size=3,
                          dropout_rate=0,
-                         time_range=6
+                         time_range=1
                          ).to(device)
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('mps'))):
             param.data = torch.tensor(src)
@@ -107,7 +108,7 @@ class VisualizeSigma(Scene):
             xx = frames[:, :TOFFSET * 2].to(device)
             error = base(xx)
             samp = ran_sample(query, error,
-                       frames[:, 60:62]).cpu().data.numpy()
+                       frames[:, 12:14]).cpu().data.numpy()
             # p_value(model, im, prev_error, frames[:, 60:62])
             pm, mask = mask_tensor(64)
 
