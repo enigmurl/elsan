@@ -3,7 +3,7 @@ import numpy as np
 from functools import cache
 
 
-def get_device(no_mps=True):
+def get_device(no_mps=False):
     if no_mps:
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # mps seems to have a memory leak

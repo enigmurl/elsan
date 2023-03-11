@@ -35,8 +35,13 @@ test_indices = list(range(7700, 9800))
 
 def load_rand():
     index = np.random.random_integers(0, 550)
-    ret = torch.load(train_direc + str(index) + ".pt")[:, 0]
-    return torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
+    ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, 0]
+    ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
+    xs = ret[0, :18].clone()
+    ys = ret[0, 18:].clone()
+    ret[0, ::2] = xs
+    ret[0, 1::2] = ys
+    return ret
 
 
 if __name__ == '__main__':
@@ -86,7 +91,6 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        print(xx.shape)
         error = base(xx)
         ran_sample(query, error, frames[:, 12:14])
         # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
@@ -106,7 +110,7 @@ if __name__ == '__main__':
             min_mse = valid_emse[-1]
             best_model = model
             torch.save(best_model, "model.pt")
-            torch.save(list(x.cpu().data.numpy().copy() for x in best_model.parameters()), 'model_state.pt')
+            torch.save(list(x.cpu().detach().numpy().copy() for x in best_model.parameters()), 'model_state.pt')
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
             # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
             # preds, trues, loss_curve = test_epoch(test_loader, best_model, loss_fun, error_fun)

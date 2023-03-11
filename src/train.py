@@ -72,7 +72,7 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
 
         for f, y in enumerate(yy.transpose(0, 1)):
             dloss = e_loss_fun(query, error, y, c_fun, hammer, f)
-            e_loss += dloss * (yy.shape[1] - f) / yy.shape[1]
+            e_loss += dloss
 
             if f != yy.shape[1] - 1:
                 error = trans(error)

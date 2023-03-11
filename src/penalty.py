@@ -31,7 +31,7 @@ class BigErrorLoss(torch.nn.Module):
 
         # compute query
         # for the mask, take a submask of which elements of the ensemble we want to use in doing the interval.
-        submask = max(1, int(torch.rand(1) * expected.shape[0]))
+        submask = max(1, 4)
         ensemble = expected[:, :submask]
         mins = torch.min(ensemble, dim=1).values
         maxs = torch.max(ensemble, dim=1).values
@@ -47,12 +47,15 @@ class BigErrorLoss(torch.nn.Module):
         predicted = orthonet(actual_pruning, query)
         compare = torch.mean(expected, dim=1)[mask2] # eliminate ensemble
 
-        # anyways, think about how to generate proper p values if we have everything?
-        # first level is very easy
-        # we can also do interval?, somewhat easily?, but is that what we really want?
-        # i think that's the best we're going to get...
-        # we can also do the general hammer loss
-
+        # ok, so problem with intervals is that they're just going to become so wide that all you're going to get
+        # is just freaking noise
+        # on the other hand, I can't really figure out why the first few frames are not very varied?
+        # again, probably has to do with the fact that it's not
+        # really respecting the query as a lot of useful information
+        # so we need to make the query very informative
+        # so you ideally want to some level of clustering...
+        # well if we just do really really small intervals on things that are super close together?
+        # maybe that will work...
         ensemble = torch.sort(ensemble, dim=1).values
 
         for i, c in enumerate(con_list):

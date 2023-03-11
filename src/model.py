@@ -65,7 +65,6 @@ def ran_sample(model, pruning_error, expected):
 
             predicted = model(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
-            start = 0.5
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
             query[:, :2][mask2] = expected[mask2]
@@ -75,11 +74,11 @@ def ran_sample(model, pruning_error, expected):
 
             rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
             rmse_1.append(torch.mean(torch.square(output[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
-            print(f"RMSE 0 {i} {torch.sqrt(rmse[-1]):4f}")
-            print(f"RMSE 1 {i} {torch.sqrt(rmse_1[-1]):4f}")
+            print(f"RMSE single {i} {torch.sqrt(rmse[-1]):4f}")
+            print(f"RMSE batch  {i} {torch.sqrt(rmse_1[-1]):4f}")
 
-        print(f"RMSE main {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
-        print(f"RMSE full {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
+        print(f"RMSE main [single] {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+        print(f"RMSE full [batch ] {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
 
         return output[:1, :2]
 
@@ -135,14 +134,15 @@ def p_value(model, mu, pruning_error, y_true):
             mask4 = torch.tile(real_mask, (4, 1, 1))
             query[:, :2][real_prev] = y_true[real_prev]
             query[:, 2:][real_prev] = y_true[real_prev]
-            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
+            # query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+            # query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
             # compute query
             query[mask4] = -query[mask4]
 
             predicted = model._modules['module'].orthonet(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
+            start = 0.5
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
                                                                            device=mu.device))
 
