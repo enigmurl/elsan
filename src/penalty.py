@@ -31,7 +31,7 @@ class BigErrorLoss(torch.nn.Module):
 
         # compute query
         # for the mask, take a submask of which elements of the ensemble we want to use in doing the interval.
-        submask = max(1, 4)
+        submask = max(1, int(torch.rand(1) * expected.shape[1]))
         ensemble = expected[:, :submask]
         mins = torch.min(ensemble, dim=1).values
         maxs = torch.max(ensemble, dim=1).values

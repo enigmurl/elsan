@@ -39,6 +39,7 @@ def load_rand():
     ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
     xs = ret[0, :18].clone()
     ys = ret[0, 18:].clone()
+
     ret[0, ::2] = xs
     ret[0, 1::2] = ys
     return ret
