@@ -51,27 +51,26 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        index = np.random.random_integers(0, 550)
-        ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, 0]
+        index = np.random.random_integers(10, 550)
+        ret = torch.load("../data/ensemble/" + str(index) + ".pt").float()[:, 0]
         ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
         xs = ret[0, :18].clone()
         ys = ret[0, 18:].clone()
         ret[0, ::2] = xs
         ret[0, 1::2] = ys
         return ret
-
-        huge = []
-        for i in range(64):
-            index = np.random.random_integers(0, 550)
-            print(index)
-            ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, i]
-            ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
-            xs = ret[0, :18].clone()
-            ys = ret[0, 18:].clone()
-            ret[0, ::2] = xs
-            ret[0, 1::2] = ys
-            huge.append(ret)
-        return torch.cat(huge)
+        #
+        # huge = []
+        # for i in range(64):
+        #     index = np.random.random_integers(0, 550)
+        #     ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, i]
+        #     ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
+        #     xs = ret[0, :18].clone()
+        #     ys = ret[0, 18:].clone()
+        #     ret[0, ::2] = xs
+        #     ret[0, 1::2] = ys
+        #     huge.append(ret)
+        # return torch.cat(huge)
 
     def model(self):
         model = Orthonet(input_channels=12,
@@ -94,7 +93,6 @@ class VisualizeSigma(Scene):
         query = model.query
         model.train()
         # model.eval()
-
 
         root = VGroup()
 
@@ -121,14 +119,15 @@ class VisualizeSigma(Scene):
         root.add(xs_frame, ys_frame, s_frame, s_label)
 
         t = 0
-        fnum = -1
+        fnum = 0
         raw_frame = 0
         xx = frames[:, :12].to(device)
         error = base(xx)
         samp = ran_sample(query, error,
                    frames[:, 12:14]).cpu().data.numpy()
-        # p_value(model, im, prev_error, frames[:, 60:62])
         pm, mask = mask_tensor(64)
+
+        print(np.std(samp), np.std(frames[:, 12:14].cpu().data.numpy()), samp)
 
         def update(m, dt):
             nonlocal t, fnum, xx, error, samp, raw_frame
@@ -145,8 +144,8 @@ class VisualizeSigma(Scene):
                 error = trans(error)
                 samp = ran_sample(query, error,
                                 frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                # p_value(model, im, prev_error,frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2])
-            else:
+                # pass
+            # else:
                 # samp = ran_sample(query, error,
                 #                   frames[:,2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
                 #
@@ -156,12 +155,12 @@ class VisualizeSigma(Scene):
                 # xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
                 # ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
                 # s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-                return
+                # return
 
-            div = max((2 * fnum - len(frames[0])) // 2, 0)
-            mod = min(2 * fnum, len(frames[0]) - 2)
-            tx = frames[fnum, mod].cpu().data.numpy()
-            ty = frames[fnum, mod + 1].cpu().data.numpy()
+            div = max((2 * fnum - len(frames[0])) // 2, 0) + TOFFSET * 2
+            mod = min(2 * fnum, len(frames[0]) - 2) + TOFFSET * 2
+            tx = frames[int(torch.rand(1) * 64), mod].cpu().data.numpy()
+            ty = frames[int(torch.rand(1) * 64), mod + 1].cpu().data.numpy()
 
             # real_im = im.cpu().data.numpy()
             # mx = real_im[0, 0]
@@ -170,6 +169,8 @@ class VisualizeSigma(Scene):
             sx = samp[0, 0]
             sy = samp[0, 1]
 
+            print("mu sigma samp", np.mean(samp), np.std(samp))
+            print("mu sigma real", np.mean(ty), np.std(ty))
             print("mine rmse", fnum,
                   np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
             # print("tfnt rmse", fnum,

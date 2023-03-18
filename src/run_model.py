@@ -14,7 +14,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 device = get_device()
 
-train_direc = "../data/ensemble/"
+train_direc = "../data/pvalued/"
 test_direc = "../data/ensemble/"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
@@ -24,12 +24,12 @@ input_length = 6
 learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
-batch_size = 16
+batch_size = 64
 pruning_size = 16
 coef = 0
 
-train_indices = list(range(0, 570))
-valid_indices = list(range(540, 570))
+train_indices = list(range(0, 4250))
+valid_indices = list(range(4000, 4250))
 test_indices = list(range(7700, 9800))
 
 
@@ -56,10 +56,10 @@ if __name__ == '__main__':
     #    param.data = torch.tensor(src, device=device)
     #    print(np.mean(np.abs(src)))
     # model = torch.load('model.pt')
-    base = model.base
-    trans = model.transition
-    query = model.query
     model = nn.DataParallel(model)
+    base = model._modules['module'].base
+    trans = model._modules['module'].transition
+    query = model._modules['module'].query
     # model.eval()
     frames = torch.cat([load_rand() for _ in range(64)], dim=0)
     xx = frames[:, :12].to(device)

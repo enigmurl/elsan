@@ -13,12 +13,14 @@ class BigErrorLoss(torch.nn.Module):
         self.drift = drift
         self.dist = dist
 
-    def forward(self, orthonet, actual_pruning, expected, con_list, hammer, fnum):
+    def forward(self, orthonet, lower, upper, actual_pruning, expected, con_list, hammer, fnum):
         # get p values and see if that helps it converge more easily
         # go through each instance and compute pixel wise errors. If error is large, we assume p value is large
         # if we can get the pvalue rights, then everything else works perfectly???
         # anyways lets try that!!
-        loss = 0
+        query = torch.cat((lower, upper), dim=1)
+        loss = orthonet(actual_pruning, query)
+        return torch.sqrt(torch.mean(torch.square(loss - expected)))
 
         prev, mask = mask_tensor(expected.shape[-1])
         batch_masks = mask_indices(len(expected), len(prev))

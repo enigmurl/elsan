@@ -79,7 +79,6 @@ def ran_sample(model, pruning_error, expected):
 
         print(f"RMSE main [single] {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
         print(f"RMSE full [batch ] {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
-
         return output[:1, :2]
 
 

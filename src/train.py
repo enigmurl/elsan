@@ -22,6 +22,12 @@ class ClusteredDataset(data.Dataset):
         return len(self.map)
 
     def __getitem__(self, index):
+        seed = torch.flatten(torch.permute(torch.load(self.direc + 'seed.pt'), (2, 0, 1, 3, 4))[:, :, 0], 0, 1)
+        lower = torch.load(self.direc + 'lowers' + str(index) + '.pt')
+        upper = torch.load(self.direc + 'uppers' + str(index) + '.pt')
+        frames = torch.flatten(torch.load(self.direc + 'frames' + str(index) + '.pt'), 1, 2)
+        return seed.float(), lower.float(), upper.float(), frames.float()
+        """
         batch = self.map[index]
 
         ensemble = torch.load(self.direc + str(int(batch)) + ".pt")
@@ -32,7 +38,7 @@ class ClusteredDataset(data.Dataset):
         ensemble = torch.transpose(ensemble, 0, 2)
 
         return torch.reshape(ensemble[:self.mid, 0].float(), (-1, *ensemble.shape[-2:])), ensemble[self.mid:].float()
-
+        """
 
 class Dataset(data.Dataset):
     def __init__(self, indices, input_length, mid, output_length, direc, stack_x):
@@ -62,24 +68,26 @@ class Dataset(data.Dataset):
 def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_loss_fun):
     train_emse = []
 
-    for b, (xx, yy) in enumerate(train_loader):
+    for b, (seed, lower, upper, frames) in enumerate(train_loader):
         e_loss = 0
-        xx = xx.to(device).detach()  # (batch, group, time, channels, h, w)
-        yy = yy.to(device).detach()
-        yy = yy[:, :max(1, min(yy.shape[1], hammer.step_num // 240))]
+        seed = seed.to(device)
+        index = max(1, min(frames.shape[1], hammer.step_num // 240))
+        lower = lower.to(device)[:, :index].detach()
+        upper = upper.to(device)[:, :index].detach()
+        frames = frames.to(device)[:, :index].detach()
 
-        error = base(xx)
+        error = base(seed)
 
-        for f, y in enumerate(yy.transpose(0, 1)):
-            dloss = e_loss_fun(query, error, y, c_fun, hammer, f)
+        for f, y in enumerate(frames.transpose(0, 1)):
+            dloss = e_loss_fun(query, lower[:, f], upper[:, f], error, y, c_fun, hammer, f)
             e_loss += dloss
 
-            if f != yy.shape[1] - 1:
+            if f != frames.shape[1] - 1:
                 error = trans(error)
 
         full_loss = e_loss
 
-        train_emse.append(e_loss.item() / yy.shape[1])
+        train_emse.append(e_loss.item() / frames.shape[1])
 
         optimizer.zero_grad()
         full_loss.backward()
