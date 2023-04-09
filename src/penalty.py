@@ -12,6 +12,7 @@ class BigErrorLoss(torch.nn.Module):
         self.noise_z = noise_z
         self.drift = drift
         self.dist = dist
+        self.dropout = torch.nn.Dropout()
 
     def forward(self, orthonet, lower, upper, actual_pruning, expected, con_list, hammer, fnum):
         # get p values and see if that helps it converge more easily
@@ -19,8 +20,9 @@ class BigErrorLoss(torch.nn.Module):
         # if we can get the pvalue rights, then everything else works perfectly???
         # anyways lets try that!!
         query = torch.cat((lower, upper), dim=1)
-        loss = orthonet(actual_pruning, query)
-        return torch.sqrt(torch.mean(torch.square(loss - expected)))
+        loss = orthonet(self.dropout(actual_pruning), query)
+        mask = torch.isclose(query[:, :2], torch.tensor(5.0, device=device)).repeat(1, len(con_list), 1, 1)
+        return torch.sqrt(torch.mean(torch.square(loss[mask] - expected[mask])))
 
         prev, mask = mask_tensor(expected.shape[-1])
         batch_masks = mask_indices(len(expected), len(prev))

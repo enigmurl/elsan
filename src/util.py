@@ -70,7 +70,8 @@ def mask_tensor(n):
         if i >= 1:
             prev[i] = torch.logical_or(mask[i - 1], prev[i - 1])
 
-        r, c = _max_index(prev[i, :block, :block])
+        r, c = i // block, i % block
+        # r, c = _max_index(prev[i, :block, :block])
         mask[i, r::block, c::block] = 1
 
     # _recurse(mask, 0, 0, n // 2 - 1, 0, n // 2 - 1)

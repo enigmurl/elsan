@@ -14,13 +14,13 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 device = get_device()
 
-train_direc = "../data/pvalued/"
+train_direc = "../data/ensemble/"
 test_direc = "../data/ensemble/"
 
 # best_params: kernel_size 3, learning_rate 0.001, dropout_rate 0, batch_size 120, input_length 25, output_length 4
 time_range = 1
-output_length = 12
-input_length = 6
+output_length = 64
+input_length = 16
 learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
@@ -28,11 +28,14 @@ batch_size = 64
 pruning_size = 16
 coef = 0
 
-train_indices = list(range(0, 4250))
-valid_indices = list(range(4000, 4250))
+train_indices = list(range(0, 8 * 256))
+valid_indices = list(range(0, 8 * 256))
 test_indices = list(range(7700, 9800))
 
-
+# so all thats left is multiple seeds (and somehow compressing it to take wayyy less space, likely via .half())
+# then just the clipping layer
+# and finally different masks
+# and then we're done??
 def load_rand():
     index = np.random.random_integers(0, 550)
     ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, 0]
@@ -61,8 +64,8 @@ if __name__ == '__main__':
     trans = model._modules['module'].transition
     query = model._modules['module'].query
     # model.eval()
-    frames = torch.cat([load_rand() for _ in range(64)], dim=0)
-    xx = frames[:, :12].to(device)
+    # frames = torch.cat([load_rand() for _ in range(64)], dim=0)
+    # xx = frames[:, :12].to(device)
     train_set = ClusteredDataset(train_indices, train_direc, input_length, 6, output_length)
     valid_set = Dataset(valid_indices, input_length + time_range - 1, 6, 6, test_direc, True)
     # workers causing bugs on m1x, likely due to lack of memory
@@ -92,8 +95,8 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        error = base(xx)
-        ran_sample(query, error, frames[:, 12:14])
+        # error = base(xx)
+        # ran_sample(query, error, frames[:, 12:14])
         # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
         # im = model(xx)
         # ran_sample(model, im, prev_error,

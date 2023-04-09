@@ -1,0 +1,6 @@
+create a bunch of ensembles of roughly 100gb, just do an extremely large cohort...
+we can decide exact hyperparameters later though. maybe 512 ensemble, and this is for every 600 * 64 input frames?
+still a lot i suppose, but it is a one time cost.
+From here, pvalue the results using similar techniques to what we had previously
+Then, just regular training and not really caring if it doesn't do all that well
+Then have a final clipping layer that is trained on the full dataset. Should work?

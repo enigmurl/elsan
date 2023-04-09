@@ -22,10 +22,10 @@ class ClusteredDataset(data.Dataset):
         return len(self.map)
 
     def __getitem__(self, index):
-        seed = torch.flatten(torch.permute(torch.load(self.direc + 'seed.pt'), (2, 0, 1, 3, 4))[:, :, 0], 0, 1)
-        lower = torch.load(self.direc + 'lowers' + str(index) + '.pt')
-        upper = torch.load(self.direc + 'uppers' + str(index) + '.pt')
-        frames = torch.flatten(torch.load(self.direc + 'frames' + str(index) + '.pt'), 1, 2)
+        seed = torch.flatten(torch.load(self.direc + 'seed_' + str(index // 8) + '.pt'), 0, 1)
+        lower = torch.load(self.direc + 'lowers_' + str(index) + '.pt')
+        upper = torch.load(self.direc + 'uppers_' + str(index) + '.pt')
+        frames = torch.load(self.direc + 'answer_' + str(index) + '.pt')
         return seed.float(), lower.float(), upper.float(), frames.float()
         """
         batch = self.map[index]

@@ -16,6 +16,8 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
+SAMPLES = 16
+ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
     r = vx.shape[0]
@@ -29,7 +31,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        )
 
 
-def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
+def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
     rects = [
@@ -47,6 +49,10 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
 
     return VGroup(rects)  # , label)
 
+
+# not exactly sure how manim interals work, but seems like construct is called twice?
+# only reason I can think of is to get total time on the first run, but that seems like such a waste
+render_count = 0
 
 class VisualizeSigma(Scene):
 
@@ -84,7 +90,8 @@ class VisualizeSigma(Scene):
         return model.to(device)
 
     def construct(self) -> None:
-        self.wait(0.01)
+        global render_count
+        render_count += 1
 
         frames = torch.cat([self.load_rand() for _ in range(64)], dim=0)
         model = self.model()
@@ -92,129 +99,91 @@ class VisualizeSigma(Scene):
         trans = model.transition
         query = model.query
         model.train()
-        # model.eval()
 
         root = VGroup()
 
         t_label = Dot().set_fill(RED, opacity=1).shift(4 * LEFT + 2.5 * UP)
-        xt_frame = Dot()
-        yt_frame = Dot()
-        t_frame = Dot()
-        t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
-
-        m_label = Dot().set_fill(BLUE, opacity=1).shift(4 * LEFT)
-        xm_frame = Dot()
-        ym_frame = Dot()
-        m_frame = Dot()
-        m_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
+        xt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        yt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        t_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
 
         s_label = Dot().set_fill(GREEN, opacity=1).shift(4 * LEFT + 2.5 * DOWN)
-        xs_frame = Dot()
-        ys_frame = Dot()
-        s_frame = Dot()
-        s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1])
+        xs_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        ys_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        s_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
 
-        root.add(xt_frame, yt_frame, t_frame, t_label)
-        root.add(xm_frame, ym_frame, m_frame, m_label)
-        root.add(xs_frame, ys_frame, s_frame, s_label)
+        root.add(xt_frame, yt_frame, t_frame)
+        root.add(xs_frame, ys_frame, s_frame)
 
         t = 0
         fnum = 0
         raw_frame = 0
         xx = frames[:, :12].to(device)
         error = base(xx)
-        samp = ran_sample(query, error,
-                   frames[:, 12:14]).cpu().data.numpy()
         pm, mask = mask_tensor(64)
 
-        print(np.std(samp), np.std(frames[:, 12:14].cpu().data.numpy()), samp)
-
         def update(m, dt):
-            nonlocal t, fnum, xx, error, samp, raw_frame
+            nonlocal t, fnum, xx, error, raw_frame
+            if render_count == 1:
+                print("Early return!")
+                return
             t += dt
-            raw_frame = int(t / (1 / 30))
             prev = fnum
+            raw_frame = int(t / (1 / 30))
             fnum = int(t / FRAME_DT)
+            mod = min(2 * fnum + TOFFSET * 2, len(frames[0]) - 2)
 
-            print("FNUM", fnum, fnum * 2 + 1 + TOFFSET * 2, frames.shape[1], fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1])
             if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
                 return
 
             if fnum > prev:
                 error = trans(error)
+
+            taken_indices = set()
+            total_matching = 0
+            for r in range(SAMPLES):
                 samp = ran_sample(query, error,
-                                frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                # pass
-            # else:
-                # samp = ran_sample(query, error,
-                #                   frames[:,2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
-                #
-                # sx = samp[0, 0]
-                # sy = samp[0, 1]
-                #
-                # xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-                # ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-                # s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-                # return
+                                  frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
 
-            div = max((2 * fnum - len(frames[0])) // 2, 0) + TOFFSET * 2
-            mod = min(2 * fnum, len(frames[0]) - 2) + TOFFSET * 2
-            tx = frames[int(torch.rand(1) * 64), mod].cpu().data.numpy()
-            ty = frames[int(torch.rand(1) * 64), mod + 1].cpu().data.numpy()
+                maximal_matching = 100000
+                best_i = 0
+                for i in range(64):
+                    if i in taken_indices:
+                        continue
+                    if np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy()))) < \
+                            maximal_matching:
+                        maximal_matching = np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy())))
+                        best_i = i
+                taken_indices.add(best_i)
+                total_matching += maximal_matching
 
-            # real_im = im.cpu().data.numpy()
-            # mx = real_im[0, 0]
-            # my = real_im[0, 1]
+                tx = frames[r, mod].cpu().data.numpy()
+                ty = frames[r, mod + 1].cpu().data.numpy()
 
-            sx = samp[0, 0]
-            sy = samp[0, 1]
+                sx = samp[0, 0]
+                sy = samp[0, 1]
 
-            print("mu sigma samp", np.mean(samp), np.std(samp))
-            print("mu sigma real", np.mean(ty), np.std(ty))
-            print("mine rmse", fnum,
-                  np.sqrt(np.mean(np.square(samp[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
-            # print("tfnt rmse", fnum,
-            #       np.sqrt(np.mean(np.square(
-            #           real_im[0] - frames[0, 2 * fnum + 0 + TOFFSET * 2: 2 * fnum + 2 + TOFFSET * 2].cpu().data.numpy()))))
+                print("mine rmse", fnum, "sample num", r,
+                      np.sqrt(np.mean(np.square(samp[0] - frames[0, mod: mod + 2].cpu().data.numpy()))))
 
-            xt_frame.become(frame("x true", tx, ORIGIN)).shift(2 * LEFT + 2.5 * UP)
-            yt_frame.become(frame("y true", ty, ORIGIN)).shift(2.5 * UP)
-            t_frame.become(vector_frame(t_axis, tx, ty)).shift(2 * RIGHT + 2.5 * UP)
+                real_r = r // ROW
+                real_c = r % ROW
+                d_w = 2.65
+                d_h = 0.85
+                shift = RIGHT * d_w * real_c + DOWN * d_h * real_r
 
-            # xm_frame.become(frame("x mean", mx, ORIGIN)).shift(2 * LEFT)
-            # ym_frame.become(frame("y mean", my, ORIGIN))
-            # m_frame.become(vector_frame(m_axis, mx, my)).shift(2 * RIGHT)
-            #
-            xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-            ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-            s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
+                xt_frame[r].become(frame("x true", tx, ORIGIN)).shift(4.00 * LEFT + 3.5 * UP + shift)
+                yt_frame[r].become(frame("y true", ty, ORIGIN)).shift(3.15 * LEFT + 3.5 * UP + shift)
+                t_frame[r].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
 
-            # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
-
-        def root_decomp(m, dt):
-            nonlocal t, fnum, xx, samp, raw_frame
-            t += dt
-            raw_frame = int(t / (1 / 30))
-            prev = fnum
-            fnum = int(t / FRAME_DT)
-
-            sx = samp[0, 0].copy()
-            sy = samp[0, 1].copy()
-
-            if raw_frame < 64:
-                sx[~pm[raw_frame]] = -5
-                sy[~pm[raw_frame]] = -5
-
-            xs_frame.become(frame("x samp", sx, ORIGIN)).shift(2 * LEFT + 2.5 * DOWN)
-            ys_frame.become(frame("y samp", sy, ORIGIN)).shift(2.5 * DOWN)
-            s_frame.become(vector_frame(s_axis, sx, sy)).shift(2 * RIGHT + 2.5 * DOWN)
-
-            # m.become(Tex("Sigma Visualizer \\text{frame}=", str(fnum)).shift(3 * UP))
-
+                xs_frame[r].become(frame("x samp", sx, ORIGIN)).shift(4.00 * LEFT - 0.5 * UP + shift)
+                ys_frame[r].become(frame("y samp", sy, ORIGIN)).shift(3.15 * LEFT - 0.5 * UP + shift)
+                s_frame[r].become(vector_frame(s_axis, sx, sy)).shift(2.30 * LEFT - 0.5 * UP + shift)
+            print("TOTAL MATCHING COST: ", fnum, total_matching / SAMPLES)
         self.add(root)
 
         root.add_updater(update)
-        self.wait((frames.shape[1] - TOFFSET * 2) / 2 * FRAME_DT + 0.2)
-
-        # root.add_updater(root_decomp)
-        # self.wait(2.5)
+        self.wait((frames.shape[1] - TOFFSET * 2) / 2 * FRAME_DT)
+        # self.wait(0.06)

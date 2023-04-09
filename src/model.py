@@ -5,7 +5,7 @@ from util import get_device, mask_tensor, mask_indices
 
 device = get_device()
 
-con_list = [-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3]
+con_list = [-2, -1, -0.5, 0, 0.5, 1, 2]
 
 
 def sample(channels: torch.tensor, t):
@@ -61,9 +61,9 @@ def ran_sample(model, pruning_error, expected):
             query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
             # compute query
-            query[mask4] = -query[mask4]
+            query[0:, :4][mask4] = - query[0:, :4][mask4]
 
-            predicted = model(pruning_error, query)
+            predicted = model(torch.dropout(pruning_error, 0.5, train=True), query)
             start = NormalDist().cdf(con_list[0])
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
