@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from functools import cache
+import os
 
 
 def get_device(no_mps=False):
@@ -11,7 +12,7 @@ def get_device(no_mps=False):
 
 
 def mask_indices(batch, elems):
-    return (torch.rand(batch) ** 4 * elems).long()
+    return (torch.rand(batch) * elems).long()
 
 
 def _recurse(mask, level, rmin, rmax, cmin, cmax):
@@ -38,7 +39,7 @@ def _mod(a, b):
 
 def _max_index(tensor):
     best = np.random.randint(0, tensor.shape[0]), np.random.randint(0, tensor.shape[1])
-    wd = 0
+    wd = -1
     for r in range(tensor.shape[0]):
         for c in range(tensor.shape[1]):
             if tensor[r][c]:
@@ -57,29 +58,26 @@ def _max_index(tensor):
 
 
 @cache
-def mask_tensor(n):
-    device = get_device()
+def mask_tensor():
+    n = 63
 
-    mask = torch.zeros((n, n, n), dtype=torch.uint8).bool()
-    prev = torch.zeros((n, n, n), dtype=torch.uint8).bool()
-    # 4 then 16 then 64, then ...
+    frm = int(np.ceil(np.log2(n)) - 1) * 2
+    mask = torch.zeros((frm, n, n), dtype=torch.uint8).bool()
+    prev = torch.zeros((frm, n, n), dtype=torch.uint8).bool()
 
-    block = int(n ** 0.5)
-
-    for i in range(n):
+    for i in range(frm):
         if i >= 1:
             prev[i] = torch.logical_or(mask[i - 1], prev[i - 1])
 
-        r, c = i // block, i % block
         # r, c = _max_index(prev[i, :block, :block])
-        mask[i, r::block, c::block] = 1
+        reverse_index = frm // 2 - i // 2
+        step = int(2 ** reverse_index)
+        r, c = step // 2 - 1, step // 2 - 1
+        if i % 2 == 1:
+            step //= 2
+        mask[i, r::step, c::step] = 1
 
-    # _recurse(mask, 0, 0, n // 2 - 1, 0, n // 2 - 1)
-    # levels = _recurse(mask, 1, n // 2, n - 1, 0, n // 2 - 1)
-    # _recurse(mask, 1, 0, n // 2 - 1, n // 2, n - 1)
-    # _recurse(mask, 0, n // 2, n - 1, n // 2, n - 1)
-
-    return prev.to(device).detach(), mask.to(device).detach()
+    return prev.to(get_device()), mask.to(get_device())
 
 
 if __name__ == '__main__':

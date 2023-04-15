@@ -34,13 +34,13 @@ def ran_sample(model, pruning_error, expected):
     with torch.no_grad():
         output = torch.ones((expected.shape[0]), 4, expected.shape[-2], expected.shape[-1], device=expected.device)
 
-        masks_ = mask_tensor(64)
+        masks_ = mask_tensor()
         masks_ = masks_[0].to(expected.device), masks_[1].to(expected.device)
         prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
                        torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
 
-        for i in range(64):
-            batch = mask_indices(63, 64).to(expected.device)
+        for i in range(len(masks_[0].shape)):
+            batch = mask_indices(63, len(masks_[0])).to(expected.device)
             masks[1:, i] = masks_[1][batch]
             prevs[1:, i] = masks_[0][batch]
 
@@ -63,7 +63,7 @@ def ran_sample(model, pruning_error, expected):
             # compute query
             query[0:, :4][mask4] = - query[0:, :4][mask4]
 
-            predicted = model(torch.dropout(pruning_error, 0.5, train=True), query)
+            predicted = model(torch.nn.functional.dropout(pruning_error, p=0.5), query)
             start = NormalDist().cdf(con_list[0])
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
@@ -103,61 +103,6 @@ def find_p(channels: torch.tensor, target):
     ret = torch.max(ret, dim=1).values
 
     return ret
-
-
-def p_value(model, mu, pruning_error, y_true):
-    def reduce(lst):
-        return min(lst)
-
-    with torch.no_grad():
-        output = torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
-
-        masks_ = mask_tensor(64)
-        masks_ = masks_[0].to(mu.device), masks_[1].to(mu.device)
-        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
-                       torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
-
-        for i in range(64):
-            batch = (torch.rand(63, device=mu.device) * 64).long()
-            masks[1:, i] = masks_[1][batch]
-            prevs[1:, i] = masks_[0][batch]
-
-        ps = []
-        for i in range(masks.shape[1]):
-            query = 5 * torch.ones((mu.shape[0]), 4, mu.shape[-2], mu.shape[-1], device=mu.device)
-            query[:, :2] = -query[:, :2]
-            m = masks[:, i]
-            real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
-            real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-            mask2 = torch.tile(real_mask, (2, 1, 1))
-            mask4 = torch.tile(real_mask, (4, 1, 1))
-            query[:, :2][real_prev] = y_true[real_prev]
-            query[:, 2:][real_prev] = y_true[real_prev]
-            # query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-            # query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
-
-            # compute query
-            query[mask4] = -query[mask4]
-
-            predicted = model._modules['module'].orthonet(pruning_error, query)
-            start = NormalDist().cdf(con_list[0])
-            start = 0.5
-            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
-                                                                           device=mu.device))
-
-            p = find_p(predicted, y_true)[torch.squeeze(m)]
-            ps.append(reduce(p))
-            sort = sorted(list(p.cpu().data.numpy()))
-            print("P-value", i, "Min", ps[-1], "Mean", torch.mean(p), sort[len(sort) // 3], sort[2 * len(sort) // 3])
-
-            query[:, :2][mask2] = y_true[mask2]
-            query[:, 2:][mask2] = y_true[mask2]
-            output[:, :2][mask2] = delta[mask2]
-            output[:, 2:][mask2] = delta[mask2]
-
-        print("Overall p", reduce(ps))
-
-        return reduce(ps)
 
 
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
@@ -238,8 +183,8 @@ class BasePruner(nn.Module):
     def forward(self, xx):
         xx_len = xx.shape[1]
         # u = u_mean + u_tilde + u_prime
-        u_tilde = self.spatial_filter(xx.reshape(xx.shape[0] * xx.shape[1], 1, 64, 64)) \
-            .reshape(xx.shape[0], xx.shape[1], 64, 64)
+        u_tilde = self.spatial_filter(xx.reshape(xx.shape[0] * xx.shape[1], 1, 63, 63)) \
+            .reshape(xx.shape[0], xx.shape[1], 63, 63)
         # u_prime
         u_prime = (xx - u_tilde)[:, (xx_len - self.input_channels):]
         # u_mean
@@ -252,7 +197,7 @@ class BasePruner(nn.Module):
             )
             u_mean.append(cur_mean)
         u_mean = torch.cat(u_mean, dim=1)
-        u_mean = u_mean.reshape(u_mean.shape[0], -1, 64, 64)
+        u_mean = u_mean.reshape(u_mean.shape[0], -1, 63, 63)
         # u_tilde
         u_tilde = u_tilde[:, (self.time_range - 1) * 2:] - u_mean
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder1(u_mean)
