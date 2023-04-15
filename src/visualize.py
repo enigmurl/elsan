@@ -16,7 +16,7 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
-SAMPLES = 16
+SAMPLES = 1
 ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -31,7 +31,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        )
 
 
-def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
+def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.125, res=1):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
     rects = [
@@ -57,14 +57,14 @@ render_count = 0
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        index = np.random.random_integers(10, 550)
-        ret = torch.load("../data/ensemble/" + str(index) + ".pt").float()[:, 0]
-        ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
-        xs = ret[0, :18].clone()
-        ys = ret[0, 18:].clone()
-        ret[0, ::2] = xs
-        ret[0, 1::2] = ys
-        return ret
+        # index = np.random.random_integers(0, 256)
+        data = torch.load('../data/ensemble/vis_seed.pt', map_location="cpu").to(device)
+        frames = torch.load('../data/ensemble/vis_frames.pt', map_location="cpu").to(device)
+        # seed = torch.load("../data/ensemble/seed_" + str(index) + ".pt").float()
+
+        # ret = torch.load("../data/ensemble/answer_" + str(8 * index) + ".pt").float()
+
+        return torch.flatten(data, 0, 1), frames
         #
         # huge = []
         # for i in range(64):
@@ -79,7 +79,7 @@ class VisualizeSigma(Scene):
         # return torch.cat(huge)
 
     def model(self):
-        model = Orthonet(input_channels=12,
+        model = Orthonet(input_channels=32,
                          pruning_size=16,
                          kernel_size=3,
                          dropout_rate=0,
@@ -93,7 +93,8 @@ class VisualizeSigma(Scene):
         global render_count
         render_count += 1
 
-        frames = torch.cat([self.load_rand() for _ in range(64)], dim=0)
+        seed, frames = self.load_rand()
+        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(64)], dim=0)
         model = self.model()
         base = model.base
         trans = model.transition
@@ -120,53 +121,61 @@ class VisualizeSigma(Scene):
         t = 0
         fnum = 0
         raw_frame = 0
-        xx = frames[:, :12].to(device)
+        xx = seed
+        # xx = frames[:, :12].to(device)
         error = base(xx)
-        pm, mask = mask_tensor(64)
+
 
         def update(m, dt):
             nonlocal t, fnum, xx, error, raw_frame
             if render_count == 1:
-                print("Early return!")
+                # print("Early return!")
                 return
             t += dt
             prev = fnum
             raw_frame = int(t / (1 / 30))
             fnum = int(t / FRAME_DT)
-            mod = min(2 * fnum + TOFFSET * 2, len(frames[0]) - 2)
+            mod = min(2 * fnum, len(frames[0]) - 2)
 
-            if fnum * 2 + 1 + TOFFSET * 2 >= frames.shape[1]:
-                return
+            # if fnum * 2 + 1 + TOFFSET * 2 >= 64:
+            #     return
 
             if fnum > prev:
                 error = trans(error)
 
             taken_indices = set()
-            total_matching = 0
+            # total_matching = 0
+            print("Hello", fnum)
+            prev, mask = mask_tensor()
             for r in range(SAMPLES):
-                samp = ran_sample(query, error,
-                                  frames[:, 2 * fnum + TOFFSET * 2: 2 * (fnum + 1) + TOFFSET * 2]).cpu().data.numpy()
+                samp = ran_sample(query, error, frames[:, 2 * fnum: 2 * fnum + 2])
 
-                maximal_matching = 100000
-                best_i = 0
-                for i in range(64):
-                    if i in taken_indices:
-                        continue
-                    if np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy()))) < \
-                            maximal_matching:
-                        maximal_matching = np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy())))
-                        best_i = i
-                taken_indices.add(best_i)
-                total_matching += maximal_matching
-
+                # maximal_matching = 100000
+                # best_i = 0
+                # for i in range(64):
+                #     if i in taken_indices:
+                #         continue
+                #     if np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy()))) < \
+                #             maximal_matching:
+                #         maximal_matching = np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy())))
+                #         best_i = i
+                # taken_indices.add(best_i)
+                # total_matching += maximal_matching
                 tx = frames[r, mod].cpu().data.numpy()
                 ty = frames[r, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0]
                 sy = samp[0, 1]
 
-                print("mine rmse", fnum, "sample num", r,
-                      np.sqrt(np.mean(np.square(samp[0] - frames[0, mod: mod + 2].cpu().data.numpy()))))
+                sx[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
+                sy[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
+                sx[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
+                sy[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
+
+                print(torch.sum((torch.sum(mask[:fnum], dim=0)).bool()))
+
+                # print("mine rmse", fnum, "sample num", r,
+                      # np.sqrt(np.mean(np.square(samp[0] - frames[0, mod: mod + 2].cpu().data.numpy()))))
 
                 real_r = r // ROW
                 real_c = r % ROW
@@ -181,9 +190,12 @@ class VisualizeSigma(Scene):
                 xs_frame[r].become(frame("x samp", sx, ORIGIN)).shift(4.00 * LEFT - 0.5 * UP + shift)
                 ys_frame[r].become(frame("y samp", sy, ORIGIN)).shift(3.15 * LEFT - 0.5 * UP + shift)
                 s_frame[r].become(vector_frame(s_axis, sx, sy)).shift(2.30 * LEFT - 0.5 * UP + shift)
-            print("TOTAL MATCHING COST: ", fnum, total_matching / SAMPLES)
+
+            # print("TOTAL MATCHING COST: ", fnum, total_matching / SAMPLES)
         self.add(root)
 
         root.add_updater(update)
-        self.wait((frames.shape[1] - TOFFSET * 2) / 2 * FRAME_DT)
+        print("Wait", (frames.shape[1]) / 2 * FRAME_DT)
+        self.wait(0.5)
+        # self.wait((frames.shape[1]) / 2 * FRAME_DT)
         # self.wait(0.06)

@@ -188,7 +188,7 @@ class BasePruner(nn.Module):
         # u_prime
         u_prime = (xx - u_tilde)[:, (xx_len - self.input_channels):]
         # u_mean
-        u_tilde2 = u_tilde.reshape(u_tilde.shape[0], u_tilde.shape[1] // 2, 2, 64, 64)
+        u_tilde2 = u_tilde.reshape(u_tilde.shape[0], u_tilde.shape[1] // 2, 2, 63, 63)
         u_mean = []
         for i in range(xx_len // 2 - self.input_channels // 2, xx_len // 2):
             cur_mean = torch.cat(
