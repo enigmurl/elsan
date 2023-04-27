@@ -20,7 +20,7 @@ class BigErrorLoss(torch.nn.Module):
         # if we can get the pvalue rights, then everything else works perfectly???
         # anyways lets try that!!
         query = torch.cat((lower, upper), dim=1)
-        loss = orthonet(self.dropout(actual_pruning), query)
+        loss = orthonet(actual_pruning, query)
         mask = torch.isclose(query[:, :2], torch.tensor(5.0, device=device)).repeat(1, len(con_list), 1, 1)
         return torch.sqrt(torch.mean(torch.square(loss[mask] - expected[mask])))
 

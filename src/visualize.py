@@ -16,7 +16,7 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
-SAMPLES = 1
+SAMPLES = 2
 ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -31,7 +31,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        )
 
 
-def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.125, res=1):
+def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
     rects = [
@@ -135,20 +135,18 @@ class VisualizeSigma(Scene):
             prev = fnum
             raw_frame = int(t / (1 / 30))
             fnum = int(t / FRAME_DT)
-            mod = min(2 * fnum, len(frames[0]) - 2)
+            mod = min(2 * fnum, frames.shape[1] - 2)
 
             # if fnum * 2 + 1 + TOFFSET * 2 >= 64:
             #     return
 
-            if fnum > prev:
+            if mod // 2 > prev:
                 error = trans(error)
 
-            taken_indices = set()
             # total_matching = 0
-            print("Hello", fnum)
             prev, mask = mask_tensor()
             for r in range(SAMPLES):
-                samp = ran_sample(query, error, frames[:, 2 * fnum: 2 * fnum + 2])
+                samp = ran_sample(query, error, frames[:, mod: mod + 2])
 
                 # maximal_matching = 100000
                 # best_i = 0
@@ -161,16 +159,16 @@ class VisualizeSigma(Scene):
                 #         best_i = i
                 # taken_indices.add(best_i)
                 # total_matching += maximal_matching
-                tx = frames[r, mod].cpu().data.numpy()
-                ty = frames[r, mod + 1].cpu().data.numpy()
+                tx = frames[mod, mod].cpu().data.numpy()
+                ty = frames[mod, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0]
                 sy = samp[0, 1]
-
-                sx[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
-                sy[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
-                sx[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
-                sy[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
+                #
+                # sx[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
+                # sy[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
+                # sx[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
+                # sy[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
 
                 print(torch.sum((torch.sum(mask[:fnum], dim=0)).bool()))
 
@@ -185,17 +183,17 @@ class VisualizeSigma(Scene):
 
                 xt_frame[r].become(frame("x true", tx, ORIGIN)).shift(4.00 * LEFT + 3.5 * UP + shift)
                 yt_frame[r].become(frame("y true", ty, ORIGIN)).shift(3.15 * LEFT + 3.5 * UP + shift)
-                t_frame[r].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
+                # t_frame[r].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
 
                 xs_frame[r].become(frame("x samp", sx, ORIGIN)).shift(4.00 * LEFT - 0.5 * UP + shift)
                 ys_frame[r].become(frame("y samp", sy, ORIGIN)).shift(3.15 * LEFT - 0.5 * UP + shift)
-                s_frame[r].become(vector_frame(s_axis, sx, sy)).shift(2.30 * LEFT - 0.5 * UP + shift)
+                # s_frame[r].become(vector_frame(s_axis, sx, sy)).shift(2.30 * LEFT - 0.5 * UP + shift)
 
             # print("TOTAL MATCHING COST: ", fnum, total_matching / SAMPLES)
         self.add(root)
 
         root.add_updater(update)
         print("Wait", (frames.shape[1]) / 2 * FRAME_DT)
-        self.wait(0.5)
-        # self.wait((frames.shape[1]) / 2 * FRAME_DT)
+        # self.wait(1)
+        self.wait((frames.shape[1]) / 2 * FRAME_DT)
         # self.wait(0.06)

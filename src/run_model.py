@@ -24,7 +24,7 @@ input_length = 16
 learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
-batch_size = 64
+batch_size = 32
 pruning_size = 16
 coef = 0
 

@@ -75,7 +75,7 @@ def mask_tensor():
         r, c = step // 2 - 1, step // 2 - 1
         if i % 2 == 1:
             step //= 2
-        mask[i, r::step, c::step] = 1
+        mask[i, r::step, c::step] = ~prev[i, r::step, c::step]
 
     return prev.to(get_device()), mask.to(get_device())
 

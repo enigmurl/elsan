@@ -27,6 +27,8 @@ def sample(channels: torch.tensor, t):
         prev_y = next_y
         prev_p = next_p
 
+    print("Visualize", "diff", torch.mean((channels[:, -2] - channels[:, 0])))
+
     return ret
 
 
@@ -63,7 +65,7 @@ def ran_sample(model, pruning_error, expected):
             # compute query
             query[0:, :4][mask4] = - query[0:, :4][mask4]
 
-            predicted = model(torch.nn.functional.dropout(pruning_error, p=0.5), query)
+            predicted = model(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
             delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
 
@@ -208,7 +210,7 @@ class BasePruner(nn.Module):
         out_deconv2 = self.deconv2(out_conv3_mean + out_conv3_tilde + out_conv3_prime + out_deconv3)
         out_deconv1 = self.deconv1(out_conv2_mean + out_conv2_tilde + out_conv2_prime + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_conv1_tilde + out_conv1_prime + out_deconv1)
-        cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0), 1)
+        cat0 = torch.cat((xx[:, (xx_len - self.input_channels):], out_deconv0[:, :, :63, :63]), 1)
         out = self.output_layer(cat0)
 
         return out
@@ -237,7 +239,8 @@ class TransitionPruner(nn.Module):
         out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        cat0 = torch.cat((prune, out_deconv0), 1)
+        cat0 = torch.cat((prune, out_deconv0[:, :, :63, :63]), dim=-3)
+
         return self.output_layer(cat0)
 
 
@@ -268,7 +271,7 @@ class OrthoQuerier(nn.Module):
         out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
         out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
 
-        cat0 = torch.cat((u, out_deconv0), dim=-3)
+        cat0 = torch.cat((u, out_deconv0[:, :, :63, :63]), dim=-3)
         out = self.output_layer(cat0)
 
         return out
