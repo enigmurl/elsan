@@ -94,7 +94,7 @@ class VisualizeSigma(Scene):
         render_count += 1
 
         seed, frames = self.load_rand()
-        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(64)], dim=0)
+        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(1)], dim=0)
         model = self.model()
         base = model.base
         trans = model.transition

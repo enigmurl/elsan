@@ -8,3 +8,4 @@ virtualenv
 *.pem
 
 src/videos
+src/images

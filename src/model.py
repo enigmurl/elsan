@@ -27,38 +27,29 @@ def sample(channels: torch.tensor, t):
         prev_y = next_y
         prev_p = next_p
 
-    print("Visualize", "diff", torch.mean((channels[:, -2] - channels[:, 0])))
-
     return ret
 
 
 def ran_sample(model, pruning_error, expected):
     with torch.no_grad():
-        output = torch.ones((expected.shape[0]), 4, expected.shape[-2], expected.shape[-1], device=expected.device)
+        output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1], device=pruning_error.device)
 
         masks_ = mask_tensor()
-        masks_ = masks_[0].to(expected.device), masks_[1].to(expected.device)
-        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (64, 1, 1, 1)), \
-                       torch.tile(torch.unsqueeze(masks_[1], 0), (64, 1, 1, 1))
-
-        for i in range(len(masks_[0].shape)):
-            batch = mask_indices(63, len(masks_[0])).to(expected.device)
-            masks[1:, i] = masks_[1][batch]
-            prevs[1:, i] = masks_[0][batch]
+        masks_ = masks_[0].to(pruning_error.device), masks_[1].to(pruning_error.device)
+        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (len(pruning_error), 1, 1, 1)), \
+                       torch.tile(torch.unsqueeze(masks_[1], 0), (len(pruning_error), 1, 1, 1))
 
         rmse = []
         rmse_1 = []
         for i in range(masks.shape[1]):
-            query = 5 * torch.ones((expected.shape[0]), 4, expected.shape[-2], expected.shape[-1],
-                                   device=expected.device)
+            query = 5 * torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
+                                   device=pruning_error.device)
             query[:, :2] = -query[:, :2]
             m = masks[:, i]
             real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
             real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
             mask2 = torch.tile(real_mask, (2, 1, 1))
             mask4 = torch.tile(real_mask, (4, 1, 1))
-            query[:, :2][real_prev] = expected[real_prev]
-            query[:, 2:][real_prev] = expected[real_prev]
             query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
             query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
@@ -67,44 +58,19 @@ def ran_sample(model, pruning_error, expected):
 
             predicted = model(pruning_error, query)
             start = NormalDist().cdf(con_list[0])
-            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=expected.device))
+            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=pruning_error.device))
 
-            query[:, :2][mask2] = expected[mask2]
-            query[:, 2:][mask2] = expected[mask2]
             output[:, :2][mask2] = delta[mask2]
             output[:, 2:][mask2] = delta[mask2]
 
-            rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
-            rmse_1.append(torch.mean(torch.square(output[1:, :2][mask2[1:]] - expected[1:][mask2[1:]])))
-            print(f"RMSE single {i} {torch.sqrt(rmse[-1]):4f}")
-            print(f"RMSE batch  {i} {torch.sqrt(rmse_1[-1]):4f}")
+            if expected is not None:
+                rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
+                print(f"RMSE single {i} {torch.sqrt(rmse[-1]):4f}")
 
-        print(f"RMSE main [single] {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
-        print(f"RMSE full [batch ] {torch.sqrt(torch.mean(torch.tensor(rmse_1))):4f}")
-        return output[:1, :2]
+        if expected is not None:
+            print(f"RMSE main [single] {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
 
-
-def find_p(channels: torch.tensor, target):
-    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=target.device)
-    # so from each channel, lets see what's the best way to do this
-    prev_v, prev_p = -5, 0
-    for i in range(len(con_list) + 1):
-        next_v = 5 if i == len(con_list) else channels[:, 2 * i: 2 * i + 2]
-        next_p = 1 if i == len(con_list) else NormalDist().cdf(con_list[i])
-
-        mask = (target >= prev_v) & (target <= next_v)
-        t_prime = (target - prev_v) / (next_v - prev_v) * (next_p - prev_p) + prev_p
-
-        ret[mask] = t_prime[mask]
-
-        prev_v = next_v
-        prev_p = next_p
-
-    ret[ret < 0.5] = 2 * ret[ret < 0.5]
-    ret[ret >= 0.5] = 2 * (1 - ret[ret >= 0.5])
-    ret = torch.max(ret, dim=1).values
-
-    return ret
+        return output[:, :2]
 
 
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
@@ -157,6 +123,34 @@ class Encoder(nn.Module):
         out_conv3 = self.conv3(out_conv2)
         out_conv4 = self.conv4(out_conv3)
         return out_conv1, out_conv2, out_conv3, out_conv4
+
+
+class ClippingLayer:
+    def __init__(self, dropout_rate=0, kernel=3):
+        self.encoder = Encoder(2, kernel, dropout_rate)
+
+        self.deconv3 = deconv(512, 256)
+        self.deconv2 = deconv(256, 128)
+        self.deconv1 = deconv(128, 64)
+        self.deconv0 = deconv(64, 32)
+
+        self.output_layer = nn.Conv2d(32 + 2, 2,
+                                      kernel_size=3,
+                                      padding=(kernel - 1) // 2)
+
+    def forward(self, xx):
+        # xx is of shape [batch, 2, 63, 63], and so is yy
+
+        out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(xx)
+
+        out_deconv3 = self.deconv3(out_conv4_mean)
+        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
+        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
+        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+
+        cat0 = torch.cat((xx, out_deconv0[:, :, :63, :63]), dim=-3)
+
+        return self.output_layer(cat0)
 
 
 class BasePruner(nn.Module):
@@ -291,6 +285,8 @@ class Orthonet(nn.Module):
                                            dropout=dropout_rate)
 
         self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
+
+        self.clipping = ClippingLayer(dropout_rate=dropout_rate, kernel=kernel_size)
 
     def forward(self, x):
         # might implement everything here instead?

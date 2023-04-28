@@ -16,7 +16,6 @@ class ClusteredDataset(data.Dataset):
         self.input_length = input_length
         self.mid = mid
         self.output_length = output_length
-        self.direc = direc
 
     def __len__(self):
         return len(self.map)
@@ -27,42 +26,34 @@ class ClusteredDataset(data.Dataset):
         upper = torch.load(self.direc + 'uppers_' + str(index) + '.pt').to(device)
         frames = torch.load(self.direc + 'answer_' + str(index) + '.pt').to(device)
         return seed.float(), lower.float(), upper.float(), frames.float()
-        """
-        batch = self.map[index]
 
-        ensemble = torch.load(self.direc + str(int(batch)) + ".pt")
-        random.shuffle(ensemble[0])
-        random.shuffle(ensemble[1])
 
-        # now it's [time, batchnum, channel, row, col]
-        ensemble = torch.transpose(ensemble, 0, 2)
-
-        return torch.reshape(ensemble[:self.mid, 0].float(), (-1, *ensemble.shape[-2:])), ensemble[self.mid:].float()
-        """
-
-class Dataset(data.Dataset):
-    def __init__(self, indices, input_length, mid, output_length, direc, stack_x):
-        super(Dataset, self).__init__()
-        self.input_length = input_length
-        self.mid = mid
-        self.output_length = output_length
-        self.stack_x = stack_x
+class ClippingDataset(data.Dataset):
+    def __init__(self, index, direc):
+        super(ClippingDataset, self).__init__()
+        self.map = index
         self.direc = direc
-        self.list_IDs = indices
-        
+
     def __len__(self):
-        return len(self.list_IDs)
+        return len(self.map)
 
     def __getitem__(self, index):
-        ID = self.list_IDs[index]
-        org = torch.load(self.direc + str(ID) + ".pt")
-        y = org[self.mid:(self.mid+self.output_length)]
-        if self.stack_x:
-            x = org[(self.mid-self.input_length):self.mid].\
-                reshape(-1, y.shape[-2], y.shape[-1])
-        else:
-            x = org[(self.mid-self.input_length):self.mid]
-        return x[:, 0].float(), y.float()
+        xx = torch.load(self.direc + 'x_' + str(index) + '.pt').to(device).float()
+        yy = torch.load(self.direc + 'y_' + str(index) + '.pt').to(device).float()
+        return xx, yy
+
+
+def train_clipping_epoch(train_loader, clipping, optimizer):
+    loss_a = []
+    for b, (xx, yy) in enumerate(train_loader):
+        optimizer.zero_grad()
+        loss = torch.sqrt(torch.mean(torch.square(clipping(xx) - yy)))
+        loss.backward()
+        optimizer.step()
+
+        loss_a.append(loss)
+
+    return np.mean(loss_a)
 
 
 def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_loss_fun):
