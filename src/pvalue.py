@@ -136,6 +136,7 @@ def single_frame(rot_s, b_s):
 
     return 6 * torch.tensor(np.array(sx)).float().to(device), 6 * torch.tensor(np.array(sy)).float().to(device)
 
+
 def simulate_ensemble(seed, rot_start, b_start, ls, us, prevs):
     # a * operation would cause duplicate references to the same empty list
     answers_x = [[[] for y in range(OUT_FRAME)] for x in range(ENSEMBLE_SAMPLES)]

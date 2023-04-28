@@ -4,12 +4,13 @@ from util import get_device
 from scipy.optimize import linear_sum_assignment
 import torch
 import numpy as np
+import sys
 device = get_device()
 
 # generate a bunch of frames... and then match framewise 
 # not terrible, actually!
 
-EPOCHS = 16
+EPOCHS = 32
 BATCH = 64
 
 
@@ -51,13 +52,16 @@ if __name__ == '__main__':
     clip = model.clipping
     model.train()
 
-    for e in range(EPOCHS):
+    for e in range(int(sys.argv[1]), EPOCHS):
         rot_start, b_start, sx, sy = get_start()
         start = torch.unsqueeze(torch.flatten(torch.stack((sx, sy)).transpose(0, 1), 0, 1), 0)
         start = start.tile((BATCH, 1, 1, 1))
 
         real_x = [[] for _ in range(OUT_FRAME)]
         real_y = [[] for _ in range(OUT_FRAME)]
+        sim_x = []
+        sim_y = []
+
         for _ in range(BATCH):
             sx, sy = single_frame(rot_start, b_start)
 
@@ -65,8 +69,6 @@ if __name__ == '__main__':
                 real_x[f].append(x.cpu())
                 real_y[f].append(y.cpu())
 
-        sim_x = []
-        sim_y = []
 
         error = base(start)
 
@@ -93,8 +95,9 @@ if __name__ == '__main__':
             x = torch.swapaxes(x, 0, 1)
             y = torch.swapaxes(y, 0, 1)
 
-            torch.save(x, '../data/clipping/x_' + str(e * len(real_x) + f) + '.pt')
-            torch.save(y, '../data/clipping/y_' + str(e * len(real_x) + f) + '.pt')
+            for z, (zx, zy) in enumerate(zip(x, y)):
+                torch.save(zx.cpu().float().clone(), '../data/clipping/x_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
+                torch.save(zy.cpu().float().clone(), '../data/clipping/y_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
 
-            print("LOG: Finished frame", e * len(real_x) + f)
+                print("LOG: Finished frame", e * OUT_FRAME * BATCH + f * BATCH + z)
 

@@ -125,8 +125,9 @@ class Encoder(nn.Module):
         return out_conv1, out_conv2, out_conv3, out_conv4
 
 
-class ClippingLayer:
+class ClippingLayer(nn.Module):
     def __init__(self, dropout_rate=0, kernel=3):
+        super(ClippingLayer, self).__init__()
         self.encoder = Encoder(2, kernel, dropout_rate)
 
         self.deconv3 = deconv(512, 256)

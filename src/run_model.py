@@ -28,7 +28,7 @@ batch_size = 32
 pruning_size = 16
 coef = 0
 
-clipping_indices = list(range(0, 1024))
+clipping_indices = list(range(0, 512))
 train_indices = list(range(0, 8 * 256))
 valid_indices = list(range(0, 8 * 256))
 test_indices = list(range(7700, 9800))
@@ -77,13 +77,14 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'clipping':
         print("Training clipping")
         for i in range(1000):
+            print("Epoch", i)
             start = time.time()
 
             torch.cuda.empty_cache()
 
             model.train()
 
-            emse = train_clipping_epoch(clipping_set, clipping, optimizer)
+            emse = train_clipping_epoch(clipping_loader, clipping, optimizer)
 
             train_emse.append(emse)
 
