@@ -45,13 +45,13 @@ class ClippingDataset(data.Dataset):
 
 def train_clipping_epoch(train_loader, clipping, optimizer):
     loss_a = []
-    for b, (xx, yy) in enumerate(train_loader):
+    for b, (yy, xx) in enumerate(train_loader):
         optimizer.zero_grad()
         loss = torch.sqrt(torch.mean(torch.square(clipping(xx) - yy)))
         loss.backward()
         optimizer.step()
 
-        loss_a.append(loss)
+        loss_a.append(float(loss))
 
     return np.mean(loss_a)
 

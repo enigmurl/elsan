@@ -93,7 +93,6 @@ if __name__ == '__main__':
             end = time.time()
 
             print("train emse", train_emse[-1],
-                  "valid emse", valid_emse[-1],
                   "minutes", round((end - start) / 60, 5))
 
     else:
@@ -140,5 +139,4 @@ if __name__ == '__main__':
             end = time.time()
 
             print("train emse", train_emse[-1],
-                  "valid emse", valid_emse[-1],
                   "minutes", round((end - start) / 60, 5))
