@@ -16,7 +16,7 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
-SAMPLES = 1
+SAMPLES = 4
 ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -149,32 +149,12 @@ class VisualizeSigma(Scene):
             for r in range(SAMPLES):
                 samp = ran_sample(query, error, frames[:, mod: mod + 2])
                 samp = clipping(samp)
-                # maximal_matching = 100000
-                # best_i = 0
-                # for i in range(64):
-                #     if i in taken_indices:
-                #         continue
-                #     if np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy()))) < \
-                #             maximal_matching:
-                #         maximal_matching = np.sqrt(np.mean(np.square(samp[0] - frames[i, mod: mod + 2].cpu().data.numpy())))
-                #         best_i = i
-                # taken_indices.add(best_i)
-                # total_matching += maximal_matching
+
                 tx = frames[mod, mod].cpu().data.numpy()
                 ty = frames[mod, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0].data.numpy()
                 sy = samp[0, 1].data.numpy()
-                #
-                # sx[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
-                # sy[torch.logical_not(torch.sum(mask[:fnum], dim=0))] = 0
-                # sx[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
-                # sy[(torch.sum(mask[:fnum], dim=0)).bool()] = 3
-
-                print(torch.sum((torch.sum(mask[:fnum], dim=0)).bool()))
-
-                # print("mine rmse", fnum, "sample num", r,
-                      # np.sqrt(np.mean(np.square(samp[0] - frames[0, mod: mod + 2].cpu().data.numpy()))))
 
                 real_r = r // ROW
                 real_c = r % ROW
@@ -196,5 +176,5 @@ class VisualizeSigma(Scene):
         root.add_updater(update)
         print("Wait", (frames.shape[1]) / 2 * FRAME_DT)
         # self.wait(1)
-        self.wait((frames.shape[1] - 18) / 2 * FRAME_DT)
+        self.wait((frames.shape[1]) / 2 * FRAME_DT)
         # self.wait(0.06)

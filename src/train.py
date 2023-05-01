@@ -62,7 +62,7 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
     for b, (seed, lower, upper, frames) in enumerate(train_loader):
         e_loss = 0
         seed = seed.to(device)
-        index = max(1, min(frames.shape[1], hammer.step_num // 240))
+        index = max(1, min(frames.shape[1], hammer.step_num))
         lower = lower.to(device)[:, :index].detach()
         upper = upper.to(device)[:, :index].detach()
         frames = frames.to(device)[:, :index].detach()

@@ -29,8 +29,8 @@ pruning_size = 16
 coef = 0
 
 clipping_indices = list(range(0, 512))
-train_indices = list(range(0, 8 * 256))
-valid_indices = list(range(0, 8 * 256))
+train_indices = list(range(0, 8 * 128))
+valid_indices = list(range(0, 8 * 128))
 test_indices = list(range(7700, 9800))
 
 if __name__ == '__main__':
@@ -40,7 +40,7 @@ if __name__ == '__main__':
                      dropout_rate=dropout_rate,
                      time_range=time_range
                      ).to(device)
-    if len(sys.argv) > 1 and sys.argv[1] == 'clipping':
+    if len(sys.argv) > 1:
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('cpu'))):
             param.data = torch.tensor(src, device=device)
 

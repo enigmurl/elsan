@@ -1,3 +1,4 @@
+import fluidsim.base.output.print_stdout
 import torch
 import numpy as np
 import os 
@@ -5,6 +6,7 @@ import sys
 import shutil
 from statistics import *
 from functools import *
+from model import con_list
 from fluiddyn.util.mpi import rank
 from fluidsim.solvers.ns2d.bouss.solver import Simul
 device = torch.device("mps")
@@ -17,19 +19,19 @@ Aim for 256 * 8 total data points then
 
 start_ensemble = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 
-ENSEMBLE_COUNT = 64
+ENSEMBLE_COUNT = 127
 ENSEMBLE_SAMPLES = 8
-NUM_ENSEMBLES = 256
+NUM_ENSEMBLES = 128
 SKIP = 8
 IN_FRAME = 16
-OUT_FRAME = 32
+OUT_FRAME = 64
 DATA = "../data/"
 
 NOISE = 0.05
 T_STEP = 0.2
 NU = 3e-4
 
-P_VALUES = [NormalDist().cdf(c) for c in [-2, -1, -0.5, 0, 0.5, 1, 2]]
+P_VALUES = [NormalDist().cdf(c) for c in con_list]
 
 
 @cache
@@ -53,10 +55,12 @@ def mask_tensor():
 
     return prev.to(device), mask.to(device)
 
+
 def rand_prev_mask():
     prev, mask = mask_tensor()
     index = int(np.random.random() * len(prev))
     return prev[index], mask[index]
+
 
 def get_start():
     params = Simul.create_default_params()
@@ -79,8 +83,8 @@ def get_start():
     sim.state.init_from_rotb(rot, b)
     sim.time_stepping.start()
     
-    rot, _  = sim.output.phys_fields.get_field_to_plot(key="rot")
-    b, _  = sim.output.phys_fields.get_field_to_plot(key="b")
+    rot, _ = sim.output.phys_fields.get_field_to_plot(key="rot")
+    b, _ = sim.output.phys_fields.get_field_to_plot(key="b")
     
     sx = []
     sy = []
@@ -96,6 +100,7 @@ def get_start():
         sy.append(uy[:63, :63])
     return rot, b, 6 * torch.tensor(np.array(sx)).float().to(device), 6 * torch.tensor(np.array(sy)).float().to(device)
 
+
 def single_frame(rot_s, b_s):
     shutil.rmtree(os.environ['FLUIDSIM_PATH'])
     
@@ -109,9 +114,9 @@ def single_frame(rot_s, b_s):
     params.nu_2 = NU
     params.time_stepping.t_end = (OUT_FRAME + 1) * T_STEP
     params.init_fields.type = "in_script"
-    params.output.periods_save.phys_fields = 0.1 
+    params.output.periods_save.phys_fields = 0.1
     params.output.periods_save.spatial_means = 0.1 
-    
+
     sim = Simul(params)
 
     rot = rot_s + np.random.normal(size=rot_s.shape) * NOISE 
@@ -126,8 +131,8 @@ def single_frame(rot_s, b_s):
         t = (k + 1) * T_STEP
         sim.output.phys_fields.set_of_phys_files.update_times()
 
-        ux, _  = sim.output.phys_fields.get_field_to_plot(key="ux", time=t, interpolate_time=True)
-        uy, _  = sim.output.phys_fields.get_field_to_plot(key="uy", time=t, interpolate_time=True)
+        ux, _ = sim.output.phys_fields.get_field_to_plot(key="ux", time=t, interpolate_time=True)
+        uy, _ = sim.output.phys_fields.get_field_to_plot(key="uy", time=t, interpolate_time=True)
 
         sx.append(ux[:63, :63])
         sy.append(uy[:63, :63])
@@ -185,12 +190,12 @@ def simulate_ensemble(seed, rot_start, b_start, ls, us, prevs):
                     res_y[msky] = y[msky]
                 frame_p.append(res_x)
                 frame_p.append(res_y)
-            # print("Ensemble finish mean", torch.mean(frame_p[-2] - frame_p[0]))
             p_values.append(torch.stack(frame_p))
 
         ensemble_ps.append(torch.stack(p_values))
 
     return ensemble_ps
+
 
 def get_queries(seed, rot_start, b_start):
     ls = []
@@ -215,11 +220,10 @@ def get_queries(seed, rot_start, b_start):
             l = torch.zeros((2, 63, 63)).to(device)
             u = torch.zeros((2, 63, 63)).to(device)
 
-
-            l[0][prev] = (mid_x)[prev]
-            l[1][prev] = (mid_y)[prev]
-            u[0][prev] = (mid_x)[prev]
-            u[1][prev] = (mid_y)[prev]
+            l[0][prev] = mid_x[prev]
+            l[1][prev] = mid_y[prev]
+            u[0][prev] = mid_x[prev]
+            u[1][prev] = mid_y[prev]
 
             l[0][~prev] = -5
             l[1][~prev] = -5

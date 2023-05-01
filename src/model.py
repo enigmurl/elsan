@@ -5,7 +5,7 @@ from util import get_device, mask_tensor, mask_indices
 
 device = get_device()
 
-con_list = [-2, -1, -0.5, 0, 0.5, 1, 2]
+con_list = [-2, -1, -0.75, -0.5, -0.25, -0.15, 0, 0.15, 0.25, 0.5, 0.75, 1, 2]
 
 
 def sample(channels: torch.tensor, t):
@@ -40,7 +40,6 @@ def ran_sample(model, pruning_error, expected):
                        torch.tile(torch.unsqueeze(masks_[1], 0), (len(pruning_error), 1, 1, 1))
 
         rmse = []
-        rmse_1 = []
         for i in range(masks.shape[1]):
             query = 5 * torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
                                    device=pruning_error.device)
