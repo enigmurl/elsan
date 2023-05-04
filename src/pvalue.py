@@ -21,10 +21,10 @@ start_ensemble = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 
 ENSEMBLE_COUNT = 127
 ENSEMBLE_SAMPLES = 8
-NUM_ENSEMBLES = 128
+NUM_ENSEMBLES = 256
 SKIP = 8
 IN_FRAME = 16
-OUT_FRAME = 64
+OUT_FRAME = 32
 DATA = "../data/"
 
 NOISE = 0.05
@@ -271,15 +271,15 @@ if __name__ == '__main__':
         start = torch.stack((sx, sy)).transpose(0, 1)
         if i == 0:
             vis = vis_seed(i, rot_start, b_start).float() 
-            torch.save(start.float(), DATA + "ensemble/vis_seed.pt")
-            torch.save(vis, DATA + "ensemble/vis_frames.pt")
+            torch.save(start.cpu().half(), DATA + "ensemble/vis_seed.pt")
+            torch.save(vis.cpu().half(), DATA + "ensemble/vis_frames.pt")
         lowers, uppers, masks = get_queries(i, rot_start, b_start) # lowers has form [ENSEMBLE_SAMPLES, frames, 2, 64, 64]
-        torch.save(start.cpu(), DATA + "ensemble/seed_" + str(i) + ".pt")
+        torch.save(start.cpu().half(), DATA + "ensemble/seed_" + str(i) + ".pt")
         answers = simulate_ensemble(i, rot_start, b_start, lowers, uppers, masks) # answers has form of [frames, 2 * len(P_VALUES), 64, 64]
         print("Ensemble finish", i)
         for j, (l, u, a) in enumerate(zip(lowers, uppers, answers)):
-            torch.save(l.cpu(), DATA + "ensemble/lowers_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
-            torch.save(u.cpu(), DATA + "ensemble/uppers_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
-            torch.save(a.cpu(), DATA + "ensemble/answer_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
+            torch.save(l.cpu().half(), DATA + "ensemble/lowers_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
+            torch.save(u.cpu().half(), DATA + "ensemble/uppers_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
+            torch.save(a.cpu().half(), DATA + "ensemble/answer_" + str(i * ENSEMBLE_SAMPLES + j) + ".pt")
             print("Ensemble finish batch:", i, j, start.shape, l.shape, u.shape, a.shape)
 

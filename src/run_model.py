@@ -24,13 +24,13 @@ input_length = 16
 learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
-batch_size = 32
+batch_size = 16
 pruning_size = 16
 coef = 0
 
 clipping_indices = list(range(0, 512))
-train_indices = list(range(0, 8 * 128))
-valid_indices = list(range(0, 8 * 128))
+train_indices = list(range(0, 8 * 256))
+valid_indices = list(range(0, 8 * 256))
 test_indices = list(range(7700, 9800))
 
 if __name__ == '__main__':

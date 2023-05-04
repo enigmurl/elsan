@@ -16,7 +16,7 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
-SAMPLES = 4
+SAMPLES = 1
 ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -58,8 +58,8 @@ class VisualizeSigma(Scene):
 
     def load_rand(self):
         # index = np.random.random_integers(0, 256)
-        data = torch.load('../data/ensemble/vis_seed.pt', map_location="cpu").to(device)
-        frames = torch.load('../data/ensemble/vis_frames.pt', map_location="cpu").to(device)
+        data = torch.load('../data/ensemble/vis_seed.pt', map_location="cpu").to(device).float()
+        frames = torch.load('../data/ensemble/vis_frames.pt', map_location="cpu").to(device).float()
         # seed = torch.load("../data/ensemble/seed_" + str(index) + ".pt").float()
 
         # ret = torch.load("../data/ensemble/answer_" + str(8 * index) + ".pt").float()
@@ -87,6 +87,11 @@ class VisualizeSigma(Scene):
                          ).to(device)
         for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('mps'))):
             param.data = torch.tensor(src)
+
+        for m in model.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.track_running_stats = False
+
         return model.to(device)
 
     def construct(self) -> None:
@@ -100,7 +105,7 @@ class VisualizeSigma(Scene):
         trans = model.transition
         query = model.query
         clipping = model.clipping
-        model.train()
+        # model.eval()
 
         root = VGroup()
 
@@ -126,7 +131,6 @@ class VisualizeSigma(Scene):
         # xx = frames[:, :12].to(device)
         error = base(xx)
 
-
         def update(m, dt):
             nonlocal t, fnum, xx, error, raw_frame
             if render_count == 1:
@@ -148,10 +152,10 @@ class VisualizeSigma(Scene):
             prev, mask = mask_tensor()
             for r in range(SAMPLES):
                 samp = ran_sample(query, error, frames[:, mod: mod + 2])
-                samp = clipping(samp)
+                # samp = clipping(samp)
 
-                tx = frames[mod, mod].cpu().data.numpy()
-                ty = frames[mod, mod + 1].cpu().data.numpy()
+                tx = frames[r, mod].cpu().data.numpy()
+                ty = frames[r, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0].data.numpy()
                 sy = samp[0, 1].data.numpy()
