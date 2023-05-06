@@ -16,7 +16,7 @@ TOFFSET = 6
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 
-SAMPLES = 1
+SAMPLES = 2
 ROW = 4
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -150,13 +150,13 @@ class VisualizeSigma(Scene):
 
             # total_matching = 0
             prev, mask = mask_tensor()
-            d = np.random.randint(0, 16)
             for r in range(SAMPLES):
                 samp = ran_sample(query, error, frames[:, mod: mod + 2])
-                # samp = clipping(samp)
+                if r > 0:
+                    samp = clipping(samp)
 
-                tx = frames[r + d, mod].cpu().data.numpy()
-                ty = frames[r + d, mod + 1].cpu().data.numpy()
+                tx = frames[r, mod].cpu().data.numpy()
+                ty = frames[r, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0].data.numpy()
                 sy = samp[0, 1].data.numpy()

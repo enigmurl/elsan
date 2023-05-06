@@ -11,7 +11,7 @@ device = get_device()
 # not terrible, actually!
 
 EPOCHS = 32
-BATCH = 64
+BATCH = 1
 
 
 def bipartite_maximal_match(true_x, true_y, sim_x, sim_y):
