@@ -69,7 +69,6 @@ if __name__ == '__main__':
                 real_x[f].append(x.cpu())
                 real_y[f].append(y.cpu())
 
-
         error = base(start)
 
         for f in range(OUT_FRAME):

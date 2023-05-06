@@ -25,10 +25,11 @@ learning_rate = 1e-3
 dropout_rate = 0
 kernel_size = 3
 batch_size = 16
+clipping_batch = 128
 pruning_size = 16
 coef = 0
 
-clipping_indices = list(range(0, 512))
+clipping_indices = list(range(0, 65535))
 train_indices = list(range(0, 8 * 256))
 valid_indices = list(range(0, 8 * 256))
 test_indices = list(range(7700, 9800))
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     clipping_set = ClippingDataset(clipping_indices, clipping_direc)
     # workers causing bugs on m1x, likely due to lack of memory
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
-    clipping_loader = data.DataLoader(clipping_set, batch_size=batch_size, shuffle=True, num_workers=0)
+    clipping_loader = data.DataLoader(clipping_set, batch_size=clipping_batch, shuffle=True, num_workers=0)
 
     loss_fun = torch.nn.MSELoss()
     error_fun = BigErrorLoss()
