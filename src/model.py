@@ -126,9 +126,9 @@ class Encoder(nn.Module):
 
 
 class ClippingLayer(nn.Module):
-    def __init__(self, dropout_rate=0, kernel=3):
+    def __init__(self, pruning, dropout_rate=0, kernel=3):
         super(ClippingLayer, self).__init__()
-        self.encoder = Encoder(2, kernel, dropout_rate)
+        self.encoder = Encoder(2 + pruning, kernel, dropout_rate)
 
         self.deconv3 = deconv(512, 256)
         self.deconv2 = deconv(256, 128)
@@ -287,7 +287,7 @@ class Orthonet(nn.Module):
 
         self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
-        self.clipping = ClippingLayer(dropout_rate=dropout_rate, kernel=kernel_size)
+        self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
     def forward(self, x):
         # might implement everything here instead?

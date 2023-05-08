@@ -11,10 +11,10 @@ device = get_device()
 # not terrible, actually!
 
 EPOCHS = 32
-BATCH = 1
+BATCH = 8
 
 
-def bipartite_maximal_match(true_x, true_y, sim_x, sim_y):
+def bipartite_maximal_match(true_x, true_y, sim_x, sim_p, sim_y):
     matrix = np.zeros((len(true_x), len(sim_x)))
     for i in range(len(true_x)):
         for j in range(len(sim_x)):
@@ -27,9 +27,10 @@ def bipartite_maximal_match(true_x, true_y, sim_x, sim_y):
     true_x = [true_x[i] for i in row_ind]
     true_y = [true_y[i] for i in row_ind]
     sim_x = [sim_x[i] for i in col_ind]
+    sim_p = [sim_p[i] for i in col_ind]
     sim_y = [sim_y[i] for i in col_ind]
 
-    return true_x, true_y, sim_x, sim_y
+    return true_x, true_y, sim_x, sim_p, sim_y
 
 
 def model():
@@ -60,6 +61,7 @@ if __name__ == '__main__':
         real_x = [[] for _ in range(OUT_FRAME)]
         real_y = [[] for _ in range(OUT_FRAME)]
         sim_x = []
+        sim_p = []
         sim_y = []
 
         for _ in range(BATCH):
@@ -75,27 +77,34 @@ if __name__ == '__main__':
             res = ran_sample(query, error, None)
             x = res[:, 0].cpu()
             y = res[:, 1].cpu()
-            error = trans(error)
 
             sim_x.append(x)
+            sim_p.append(error)
             sim_y.append(y)
 
-        for f, tx, ty, sx, sy in zip(range(len(real_x)), real_x, real_y, sim_x, sim_y):
-            tx1, ty1, sx1, sy1 = bipartite_maximal_match(
+            error = trans(error)
+
+        for f, tx, ty, sx, sp, sy in zip(range(len(real_x)), real_x, real_y, sim_x, sim_p, sim_y):
+            tx1, ty1, sx1, sp, sy1 = bipartite_maximal_match(
                 torch.stack(tx).numpy(),
                 torch.stack(ty).numpy(),
                 sx.numpy(),
+                sp.cpu().detach().numpy(),
                 sy.numpy()
             )
 
             x = torch.tensor(np.array([tx1, ty1]))
+            p = torch.tensor(sp)
             y = torch.tensor(np.array([sx1, sy1]))
 
             x = torch.swapaxes(x, 0, 1)
             y = torch.swapaxes(y, 0, 1)
 
-            for z, (zx, zy) in enumerate(zip(x, y)):
+            print("LOG", p.shape)
+
+            for z, (zx, zp, zy) in enumerate(zip(x, p, y)):
                 torch.save(zx.cpu().float().clone(), '../data/clipping/x_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
+                torch.save(zp.cpu().float().clone(), '../data/clipping/p_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
                 torch.save(zy.cpu().float().clone(), '../data/clipping/y_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
 
                 print("LOG: Finished frame", e * OUT_FRAME * BATCH + f * BATCH + z)

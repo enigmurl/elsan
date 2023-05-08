@@ -153,6 +153,7 @@ class VisualizeSigma(Scene):
             for r in range(SAMPLES):
                 samp = ran_sample(query, error, frames[:, mod: mod + 2])
                 if r > 0:
+                    samp = torch.cat([samp, error], dim=-3)
                     samp = clipping(samp)
 
                 tx = frames[r, mod].cpu().data.numpy()

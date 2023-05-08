@@ -39,15 +39,18 @@ class ClippingDataset(data.Dataset):
 
     def __getitem__(self, index):
         xx = torch.load(self.direc + 'x_' + str(index) + '.pt').to(device).float()
+        pp = torch.load(self.direc + 'p_' + str(index) + '.pt').to(device).float()
         yy = torch.load(self.direc + 'y_' + str(index) + '.pt').to(device).float()
-        return xx, yy
+        return xx, pp, yy
 
 
 def train_clipping_epoch(train_loader, clipping, optimizer):
     loss_a = []
-    for b, (yy, xx) in enumerate(train_loader):
+    for b, (yy, pp, xx) in enumerate(train_loader):
         optimizer.zero_grad()
-        loss = torch.sqrt(torch.mean(torch.square(clipping(xx) - yy)))
+        zz = torch.cat((yy, pp), dim=1)
+        print(zz.shape)
+        loss = torch.sqrt(torch.mean(torch.square(clipping(zz) - yy)))
         loss.backward()
         optimizer.step()
 
