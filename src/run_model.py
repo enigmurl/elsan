@@ -29,7 +29,7 @@ clipping_batch = 128
 pruning_size = 16
 coef = 0
 
-clipping_indices = list(range(0, 1024))
+clipping_indices = list(range(0, int(2 ** 15)))
 train_indices = list(range(0, 8 * 256))
 valid_indices = list(range(0, 8 * 256))
 test_indices = list(range(7700, 9800))

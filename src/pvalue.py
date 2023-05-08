@@ -33,7 +33,6 @@ NU = 3e-4
 
 P_VALUES = [NormalDist().cdf(c) for c in con_list]
 
-
 @cache
 def mask_tensor():
     n = 63
