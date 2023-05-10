@@ -1,17 +1,12 @@
+from hyperparameters import *
 from model import Orthonet, ran_sample
-from pvalue import get_start, single_frame, OUT_FRAME
-from util import get_device
+from pvalue import get_start, single_frame, DATA_OUT_FRAME
+from util import get_device, write_parameters_into_model
 from scipy.optimize import linear_sum_assignment
 import torch
 import numpy as np
 import sys
 device = get_device()
-
-# generate a bunch of frames... and then match framewise 
-# not terrible, actually!
-
-EPOCHS = 32
-BATCH = 8
 
 
 def bipartite_maximal_match(true_x, true_y, sim_x, sim_p, sim_y):
@@ -21,7 +16,6 @@ def bipartite_maximal_match(true_x, true_y, sim_x, sim_p, sim_y):
             matrix[i][j] = np.sqrt(np.mean(np.square(true_x[i] - sim_x[j]))) + \
                            np.sqrt(np.mean(np.square(true_y[i] - sim_y[j])))
 
-    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linear_sum_assignment.html
     row_ind, col_ind = linear_sum_assignment(matrix)
 
     true_x = [true_x[i] for i in row_ind]
@@ -34,14 +28,13 @@ def bipartite_maximal_match(true_x, true_y, sim_x, sim_p, sim_y):
 
 
 def model():
-    model = Orthonet(input_channels=32,
-                     pruning_size=16,
-                     kernel_size=3,
-                     dropout_rate=0,
-                     time_range=1
+    model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
+                     pruning_size=O_PRUNING_SIZE,
+                     kernel_size=O_KERNEL_SIZE,
+                     dropout_rate=O_DROPOUT_RATE,
+                     time_range=O_TIME_RANGE
                      ).to(device)
-    for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('mps'))):
-        param.data = torch.tensor(src)
+    write_parameters_into_model(model, 'model_state.pt')
     return model.to(device)
     
 
@@ -53,18 +46,18 @@ if __name__ == '__main__':
     clip = model.clipping
     model.train()
 
-    for e in range(int(sys.argv[1]), EPOCHS):
+    for e in range(int(sys.argv[1]), CLIPPING_EPOCHS):
         rot_start, b_start, sx, sy = get_start()
         start = torch.unsqueeze(torch.flatten(torch.stack((sx, sy)).transpose(0, 1), 0, 1), 0)
-        start = start.tile((BATCH, 1, 1, 1))
+        start = start.tile((CLIPPING_BATCH_SIZE, 1, 1, 1))
 
-        real_x = [[] for _ in range(OUT_FRAME)]
-        real_y = [[] for _ in range(OUT_FRAME)]
+        real_x = [[] for _ in range(DATA_OUT_FRAME)]
+        real_y = [[] for _ in range(DATA_OUT_FRAME)]
         sim_x = []
         sim_p = []
         sim_y = []
 
-        for _ in range(BATCH):
+        for _ in range(CLIPPING_BATCH_SIZE):
             sx, sy = single_frame(rot_start, b_start)
 
             for f, (x, y) in enumerate(zip(sx, sy)):
@@ -73,7 +66,7 @@ if __name__ == '__main__':
 
         error = base(start)
 
-        for f in range(OUT_FRAME):
+        for f in range(DATA_OUT_FRAME):
             res = ran_sample(query, error, None)
             x = res[:, 0].cpu()
             y = res[:, 1].cpu()
@@ -100,12 +93,10 @@ if __name__ == '__main__':
             x = torch.swapaxes(x, 0, 1)
             y = torch.swapaxes(y, 0, 1)
 
-            print("LOG", p.shape)
-
             for z, (zx, zp, zy) in enumerate(zip(x, p, y)):
-                torch.save(zx.cpu().float().clone(), '../data/clipping/x_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
-                torch.save(zp.cpu().float().clone(), '../data/clipping/p_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
-                torch.save(zy.cpu().float().clone(), '../data/clipping/y_' + str(e * OUT_FRAME * BATCH + f * BATCH + z) + '.pt')
+                n = str(e * DATA_OUT_FRAME * CLIPPING_BATCH_SIZE + f * CLIPPING_BATCH_SIZE + z)
+                torch.save(zx.cpu().float().clone(), '../data/clipping/x_' + n + '.pt')
+                torch.save(zp.cpu().float().clone(), '../data/clipping/p_' + n + '.pt')
+                torch.save(zy.cpu().float().clone(), '../data/clipping/y_' + n + '.pt')
 
-                print("LOG: Finished frame", e * OUT_FRAME * BATCH + f * BATCH + z)
-
+                print("LOG", "finished frame", e * DATA_OUT_FRAME * CLIPPING_BATCH_SIZE + f * CLIPPING_BATCH_SIZE + z)

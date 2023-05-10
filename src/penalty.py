@@ -1,96 +1,19 @@
 import torch
-import numpy as np
-from statistics import NormalDist
-from util import get_device, mask_tensor, mask_indices
-
+from hyperparameters import *
+from util import get_device
 device = get_device()
 
 
 class BigErrorLoss(torch.nn.Module):
-    def __init__(self, noise_z=0.005, dist=0.05, drift=1):
+    def __init__(self):
         super(BigErrorLoss, self).__init__()
-        self.noise_z = noise_z
-        self.drift = drift
-        self.dist = dist
-        self.dropout = torch.nn.Dropout()
 
-    def forward(self, orthonet, lower, upper, actual_pruning, expected, con_list, hammer, fnum):
-        # get p values and see if that helps it converge more easily
-        # go through each instance and compute pixel wise errors. If error is large, we assume p value is large
-        # if we can get the pvalue rights, then everything else works perfectly???
-        # anyways lets try that!!
+    def forward(self, orthonet, lower, upper, actual_pruning, expected):
         query = torch.cat((lower, upper), dim=1)
         loss = orthonet(actual_pruning, query)
-        mask = torch.isclose(query[:, :2], torch.tensor(5.0, device=device)).repeat(1, len(con_list), 1, 1)
+        mask = torch.isclose(query[:, :2],
+                             torch.tensor(DATA_LOWER_QUERY_VALUE, device=device)).repeat(1, len(CON_LIST), 1, 1)
         return torch.sqrt(torch.mean(torch.square(loss[mask] - expected[mask])))
-
-        prev, mask = mask_tensor(expected.shape[-1])
-        batch_masks = mask_indices(len(expected), len(prev))
-        real_prev, real_mask = torch.unsqueeze(prev[batch_masks], dim=1), torch.unsqueeze(mask[batch_masks], dim=1)
-        # real_prev = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
-        # real_mask = torch.rand((len(expected), 1, *expected.shape[2:])) > 0.5
-        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-        mask4 = torch.tile(real_mask, (4, 1, 1))
-        mask2 = torch.tile(real_mask, (2, 1, 1))
-
-        # compute query
-        # for the mask, take a submask of which elements of the ensemble we want to use in doing the interval.
-        submask = max(1, int(torch.rand(1) * expected.shape[1]))
-        ensemble = expected[:, :submask]
-        mins = torch.min(ensemble, dim=1).values
-        maxs = torch.max(ensemble, dim=1).values
-
-        query = torch.full((len(expected), 4, *expected.shape[-2:]), -5.0, device=device)
-        query[:, 2:] = 5
-        noise = torch.normal(0, self.noise_z * (fnum + 1), expected.shape, device=device)
-        query[:, 2:][real_prev] = mins[real_prev]
-        query[:, :2][real_prev] = maxs[real_prev]
-        query[mask4] = -query[mask4]
-
-        # add some noise to query in previous portions to make it more robust
-        predicted = orthonet(actual_pruning, query)
-        compare = torch.mean(expected, dim=1)[mask2] # eliminate ensemble
-
-        # ok, so problem with intervals is that they're just going to become so wide that all you're going to get
-        # is just freaking noise
-        # on the other hand, I can't really figure out why the first few frames are not very varied?
-        # again, probably has to do with the fact that it's not
-        # really respecting the query as a lot of useful information
-        # so we need to make the query very informative
-        # so you ideally want to some level of clustering...
-        # well if we just do really really small intervals on things that are super close together?
-        # maybe that will work...
-        ensemble = torch.sort(ensemble, dim=1).values
-
-        for i, c in enumerate(con_list):
-            curr = predicted[:, 2 * i: 2 * (i + 1)][mask2]
-            p_true = NormalDist().cdf(c)
-
-            greater = curr >= compare
-            p_value = torch.sum(greater) / torch.numel(greater)
-
-            p_index = int(p_true * ensemble.shape[1])
-            target = ensemble[:, p_index][mask2]
-
-            loss += self.drift * torch.sqrt(torch.mean(torch.square(target - curr)))
-
-            if p_value < p_true:
-                loss += hammer.hammer_loss(compare, curr)
-            else:
-                loss += hammer.lorris_loss(compare, curr)
-
-            # if i <= len(con_list) // 2:
-            #     prime = len(con_list) - 1 - i
-            #     comp = predicted[:, 2 * prime: 2 * (prime + 1)][mask2]
-            #
-            #     mean = (comp + curr) / 2
-            #
-            #     print(f"Width {i} {float(torch.sqrt(torch.mean(torch.square(comp - curr)))):4f}")
-            #     loss += self.drift * torch.sqrt(torch.mean(torch.square(mean - compare)))
-
-            print(f"Target {p_true:4f} Received {p_value:4f} run_loss {loss:4f}")
-
-        return loss
 
 
 class MagnitudeLoss(torch.nn.Module):

@@ -19,6 +19,7 @@ FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 SAMPLES = 2
 ROW = 4
 
+
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
     r = vx.shape[0]
     c = vx.shape[1]
@@ -53,7 +54,6 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
 # not exactly sure how manim interals work, but seems like construct is called twice?
 # only reason I can think of is to get total time on the first run, but that seems like such a waste
 render_count = 0
-
 class VisualizeSigma(Scene):
 
     def load_rand(self):
@@ -105,7 +105,8 @@ class VisualizeSigma(Scene):
         trans = model.transition
         query = model.query
         clipping = model.clipping
-        # model.eval()
+
+        model.eval()
 
         root = VGroup()
 
@@ -149,15 +150,14 @@ class VisualizeSigma(Scene):
                 error = trans(error)
 
             # total_matching = 0
-            prev, mask = mask_tensor()
+            d = np.random.randint(0, 16)
             for r in range(SAMPLES):
                 samp = ran_sample(query, error, frames[:, mod: mod + 2])
-                if r > 0:
-                    samp = torch.cat([samp, error], dim=-3)
-                    samp = clipping(samp)
+                samp = torch.cat([samp, error], dim=-3)
+                samp = clipping(samp)
 
-                tx = frames[r, mod].cpu().data.numpy()
-                ty = frames[r, mod + 1].cpu().data.numpy()
+                tx = frames[r + d, mod].cpu().data.numpy()
+                ty = frames[r + d, mod + 1].cpu().data.numpy()
 
                 sx = samp[0, 0].data.numpy()
                 sy = samp[0, 1].data.numpy()
@@ -168,8 +168,8 @@ class VisualizeSigma(Scene):
                 d_h = 0.85
                 shift = RIGHT * d_w * real_c + DOWN * d_h * real_r
 
-                xt_frame[r].become(frame("x true", tx, ORIGIN)).shift(4.00 * LEFT + 3.5 * UP + shift)
-                yt_frame[r].become(frame("y true", ty, ORIGIN)).shift(3.15 * LEFT + 3.5 * UP + shift)
+                xt_frame[r].become(frame("x true", tx, ORIGIN)).shift(4.00 * LEFT + 0.5 * UP + shift)
+                yt_frame[r].become(frame("y true", ty, ORIGIN)).shift(3.15 * LEFT + 0.5 * UP + shift)
                 # t_frame[r].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
 
                 xs_frame[r].become(frame("x samp", sx, ORIGIN)).shift(4.00 * LEFT - 0.5 * UP + shift)

@@ -1,21 +1,16 @@
-import random
-
 import torch
 import numpy as np
 from torch.utils import data
 from util import get_device
-
 device = get_device()
 
 
 class ClusteredDataset(data.Dataset):
-    def __init__(self, index, direc, input_length, mid, output_length):
+    def __init__(self, index, direc, input_length):
         super(ClusteredDataset, self).__init__()
         self.map = index
         self.direc = direc
         self.input_length = input_length
-        self.mid = mid
-        self.output_length = output_length
 
     def __len__(self):
         return len(self.map)
@@ -49,7 +44,6 @@ def train_clipping_epoch(train_loader, clipping, optimizer):
     for b, (yy, pp, xx) in enumerate(train_loader):
         optimizer.zero_grad()
         zz = torch.cat((yy, pp), dim=1)
-        print(zz.shape)
         loss = torch.sqrt(torch.mean(torch.square(clipping(zz) - yy)))
         loss.backward()
         optimizer.step()
@@ -59,13 +53,15 @@ def train_clipping_epoch(train_loader, clipping, optimizer):
     return np.mean(loss_a)
 
 
-def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_loss_fun):
+def train_orthonet_epoch(train_loader, base, trans, query, optimizer, e_loss_fun):
     train_emse = []
 
     for b, (seed, lower, upper, frames) in enumerate(train_loader):
         e_loss = 0
-        seed = seed.to(device)
-        index = max(1, min(frames.shape[1], hammer.step_num))
+
+        index = frames.shape[1]  # how many frames to go into future, some variations have a warmup period
+
+        seed = seed.to(device).detach()
         lower = lower.to(device)[:, :index].detach()
         upper = upper.to(device)[:, :index].detach()
         frames = frames.to(device)[:, :index].detach()
@@ -73,10 +69,10 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
         error = base(seed)
 
         for f, y in enumerate(frames.transpose(0, 1)):
-            dloss = e_loss_fun(query, lower[:, f], upper[:, f], error, y, c_fun, hammer, f)
+            dloss = e_loss_fun(query, lower[:, f], upper[:, f], error, y)
             e_loss += dloss
 
-            if f != frames.shape[1] - 1:
+            if f < index - 1:
                 error = trans(error)
 
         full_loss = e_loss
@@ -86,12 +82,11 @@ def train_epoch(train_loader, base, trans, query, optimizer, hammer, c_fun, e_lo
         optimizer.zero_grad()
         full_loss.backward()
         optimizer.step()
-        hammer.step()
 
-    e_loss = round(np.sqrt(np.mean(train_emse)), 5)
-    return e_loss
+    return round(np.sqrt(np.mean(train_emse)), 5)
 
 
+# TODO
 def eval_epoch(valid_loader, base, trans, query, hammer, c_fun, e_loss_fun):
     valid_emse = []
 

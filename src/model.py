@@ -1,21 +1,19 @@
 import torch
 import torch.nn as nn
-from statistics import *
-from util import get_device, mask_tensor, mask_indices
 
+from hyperparameters import *
+from util import get_device, mask_tensor
 device = get_device()
-
-con_list = [-2, -1, -0.75, -0.5, -0.25, -0.15, 0, 0.15, 0.25, 0.5, 0.75, 1, 2]
 
 
 def sample(channels: torch.tensor, t):
     ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=t.device)
-    # so from each channel, lets see what's the best way to do this
-    prev_x, prev_y, prev_p = -5, -5, 0
-    for i in range(len(con_list) + 1):
-        next_x = 5 if i == len(con_list) else channels[:, 2 * i]
-        next_y = 5 if i == len(con_list) else channels[:, 2 * i + 1]
-        next_p = 1 if i == len(con_list) else NormalDist().cdf(con_list[i])
+
+    prev_x, prev_y, prev_p = 0, 0, 0
+    for i in range(len(CON_LIST) + 1):
+        next_x = 0 if i == len(CON_LIST) else channels[:, 2 * i]
+        next_y = 0 if i == len(CON_LIST) else channels[:, 2 * i + 1]
+        next_p = 1 if i == len(CON_LIST) else NormalDist().cdf(CON_LIST[i])
 
         mask = (t >= prev_p) & (t <= next_p)
         t_prime = (t - prev_p) / (next_p - prev_p)
@@ -32,7 +30,8 @@ def sample(channels: torch.tensor, t):
 
 def ran_sample(model, pruning_error, expected):
     with torch.no_grad():
-        output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1], device=pruning_error.device)
+        output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
+                            device=pruning_error.device)
 
         masks_ = mask_tensor()
         masks_ = masks_[0].to(pruning_error.device), masks_[1].to(pruning_error.device)
@@ -41,34 +40,33 @@ def ran_sample(model, pruning_error, expected):
 
         rmse = []
         for i in range(masks.shape[1]):
-            query = 5 * torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
-                                   device=pruning_error.device)
-            query[:, :2] = -query[:, :2]
+            query = torch.full((pruning_error.shape[0], 4, pruning_error.shape[-2], pruning_error.shape[-1]),
+                               DATA_UPPER_UNKNOWN_VALUE, device=pruning_error.device)
+            query[:, :2] = DATA_LOWER_UNKNOWN_VALUE
             m = masks[:, i]
             real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
             real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
             mask2 = torch.tile(real_mask, (2, 1, 1))
-            mask4 = torch.tile(real_mask, (4, 1, 1))
             query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
             query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
             # compute query
-            query[0:, :4][mask4] = - query[0:, :4][mask4]
+            query[0:, :2][mask2] = DATA_LOWER_QUERY_VALUE
+            query[0:, 2:][mask2] = DATA_UPPER_QUERY_VALUE
 
             predicted = model(pruning_error, query)
-            start = NormalDist().cdf(con_list[0])
-            # start = 0.5
-            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]), device=pruning_error.device))
+            start = NormalDist().cdf(CON_LIST[0])
+            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
+                                                                           device=pruning_error.device))
 
             output[:, :2][mask2] = delta[mask2]
             output[:, 2:][mask2] = delta[mask2]
 
             if expected is not None:
                 rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
-                print(f"RMSE single {i} {torch.sqrt(rmse[-1]):4f}")
 
         if expected is not None:
-            print(f"RMSE main [single] {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+            print(f"RMSE: {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
 
         return output[:, :2]
 
@@ -85,7 +83,7 @@ def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad
         layer = nn.Sequential(
             nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
                       stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
-            nn.BatchNorm2d(output_channels),
+            nn.BatchNorm2d(output_channels, track_running_stats=False),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(dropout_rate)
         )
@@ -126,7 +124,7 @@ class Encoder(nn.Module):
 
 
 class ClippingLayer(nn.Module):
-    def __init__(self, pruning, dropout_rate=0, kernel=3):
+    def __init__(self, pruning, dropout_rate=0, kernel=O_KERNEL_SIZE):
         super(ClippingLayer, self).__init__()
         self.encoder = Encoder(2 + pruning, kernel, dropout_rate)
 
@@ -135,13 +133,11 @@ class ClippingLayer(nn.Module):
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + 2, 2,
+        self.output_layer = nn.Conv2d(32 + 2 + pruning, 2,
                                       kernel_size=3,
                                       padding=(kernel - 1) // 2)
 
     def forward(self, xx):
-        # xx is of shape [batch, 2, 63, 63], and so is yy
-
         out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(xx)
 
         out_deconv3 = self.deconv3(out_conv4_mean)
@@ -252,7 +248,7 @@ class OrthoQuerier(nn.Module):
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + in_channels, 2 * len(con_list), kernel_size=kernel_size,
+        self.output_layer = nn.Conv2d(32 + in_channels, 2 * len(CON_LIST), kernel_size=kernel_size,
                                       padding=(kernel_size - 1) // 2)
 
     def forward(self, pruning, query):
@@ -290,5 +286,15 @@ class Orthonet(nn.Module):
         self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
     def forward(self, x):
-        # might implement everything here instead?
         return x
+
+    def eval(self):
+        super(Orthonet, self).eval()
+
+        for m in self.modules():
+            for c in m.children():
+                if isinstance(c, nn.BatchNorm2d):
+                    c.track_running_stats = False
+                    c.affine = True
+
+        return self
