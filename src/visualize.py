@@ -4,20 +4,14 @@ import torch
 import sys
 import os
 sys.path.append(os.getcwd())
+
 from model import *
 from util import *
-
-device = get_device(no_mps=False )
-
-DIR = "../data/data_64/sample_"
-INDICES = range(6000, 7700)
-TOFFSET = 6
+device = get_device()
 
 COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
-
-SAMPLES = 2
-ROW = 4
+SAMPLES = 1
 
 
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
@@ -32,7 +26,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
                        )
 
 
-def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
+def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.025, res=1):
     color = get_rgb_gradient_function(-3, 3, COLOR_MAP)
 
     rects = [
@@ -54,44 +48,26 @@ def frame(label: str, tensor: torch.tensor, org: np.ndarray, w=0.0125, res=1):
 # not exactly sure how manim interals work, but seems like construct is called twice?
 # only reason I can think of is to get total time on the first run, but that seems like such a waste
 render_count = 0
+
+
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        # index = np.random.random_integers(0, 256)
-        data = torch.load('../data/ensemble/vis_seed.pt', map_location="cpu").to(device).float()
-        frames = torch.load('../data/ensemble/vis_frames.pt', map_location="cpu").to(device).float()
-        # seed = torch.load("../data/ensemble/seed_" + str(index) + ".pt").float()
+        index = np.random.randint(0, DATA_VALIDATION_ENSEMBLES)
 
-        # ret = torch.load("../data/ensemble/answer_" + str(8 * index) + ".pt").float()
+        data = torch.load('../data/validate/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
+        frames = torch.load('../data/validate/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
 
         return torch.flatten(data, 0, 1), frames
-        #
-        # huge = []
-        # for i in range(64):
-        #     index = np.random.random_integers(0, 550)
-        #     ret = torch.load("../data/ensemble/" + str(index) + ".pt")[:, i]
-        #     ret = torch.unsqueeze(ret.reshape(-1, ret.shape[-2], ret.shape[-1]), dim=0).to(device).float()
-        #     xs = ret[0, :18].clone()
-        #     ys = ret[0, 18:].clone()
-        #     ret[0, ::2] = xs
-        #     ret[0, 1::2] = ys
-        #     huge.append(ret)
-        # return torch.cat(huge)
 
     def model(self):
-        model = Orthonet(input_channels=32,
-                         pruning_size=16,
-                         kernel_size=3,
-                         dropout_rate=0,
-                         time_range=1
+        model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
+                         pruning_size=O_PRUNING_SIZE,
+                         kernel_size=O_KERNEL_SIZE,
+                         dropout_rate=O_DROPOUT_RATE,
+                         time_range=O_TIME_RANGE
                          ).to(device)
-        for param, src in zip(model.parameters(), torch.load('model_state.pt', map_location=torch.device('mps'))):
-            param.data = torch.tensor(src)
-
-        for m in model.modules():
-            if isinstance(m, nn.BatchNorm2d):
-                m.track_running_stats = False
-
+        write_parameters_into_model(model, 'model_state.pt')
         return model.to(device)
 
     def construct(self) -> None:
@@ -100,87 +76,65 @@ class VisualizeSigma(Scene):
 
         seed, frames = self.load_rand()
         seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(1)], dim=0)
-        model = self.model()
+        model = self.model().eval()
         base = model.base
         trans = model.transition
         query = model.query
         clipping = model.clipping
 
-        model.eval()
-
         root = VGroup()
 
-        t_label = Dot().set_fill(RED, opacity=1).shift(4 * LEFT + 2.5 * UP)
+        t_label = Text("Ground Truth").set_fill(RED, opacity=1).shift(2.5 * UP)
         xt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
         yt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
-        t_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
-        t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
+        # t_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        # t_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
 
-        s_label = Dot().set_fill(GREEN, opacity=1).shift(4 * LEFT + 2.5 * DOWN)
+        s_label = Text("Predicted").set_fill(GREEN, opacity=1).shift(2.5 * DOWN)
         xs_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
         ys_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
-        s_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
-        s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
+        # s_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
+        # s_axis = NumberPlane([-0.8, 0.8, 1], [-0.8, 0.8, 1]).scale(0.5)
 
-        root.add(xt_frame, yt_frame, t_frame)
-        root.add(xs_frame, ys_frame, s_frame)
+        root.add(xt_frame, yt_frame, t_label)
+        root.add(xs_frame, ys_frame, s_label)
 
         t = 0
         fnum = 0
-        raw_frame = 0
         xx = seed
-        # xx = frames[:, :12].to(device)
         error = base(xx)
 
         def update(m, dt):
-            nonlocal t, fnum, xx, error, raw_frame
+            nonlocal t, fnum, xx, error
             if render_count == 1:
-                # print("Early return!")
                 return
             t += dt
             prev = fnum
-            raw_frame = int(t / (1 / 30))
             fnum = int(t / FRAME_DT)
             mod = min(2 * fnum, frames.shape[1] - 2)
-
-            # if fnum * 2 + 1 + TOFFSET * 2 >= 64:
-            #     return
 
             if mod // 2 > prev:
                 error = trans(error)
 
-            # total_matching = 0
-            d = np.random.randint(0, 16)
-            for r in range(SAMPLES):
-                samp = ran_sample(query, error, frames[:, mod: mod + 2])
-                samp = torch.cat([samp, error], dim=-3)
-                samp = clipping(samp)
+            d = np.random.randint(0, len(frames))
+            samp = ran_sample(query, error, frames[:, mod: mod + 2])
+            samp = torch.cat([samp, error], dim=-3)
+            samp = clipping(samp)
 
-                tx = frames[r + d, mod].cpu().data.numpy()
-                ty = frames[r + d, mod + 1].cpu().data.numpy()
+            tx = frames[d, mod].cpu().data.numpy()
+            ty = frames[d, mod + 1].cpu().data.numpy()
 
-                sx = samp[0, 0].data.numpy()
-                sy = samp[0, 1].data.numpy()
+            sx = samp[0, 0].data.numpy()
+            sy = samp[0, 1].data.numpy()
 
-                real_r = r // ROW
-                real_c = r % ROW
-                d_w = 2.65
-                d_h = 0.85
-                shift = RIGHT * d_w * real_c + DOWN * d_h * real_r
+            xt_frame[0].become(frame("x true", tx, ORIGIN)).shift(0.8 * LEFT + 0.9 * UP)
+            yt_frame[0].become(frame("y true", ty, ORIGIN)).shift(0.8 * RIGHT + 0.9 * UP)
+            # t_frame[0].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
 
-                xt_frame[r].become(frame("x true", tx, ORIGIN)).shift(4.00 * LEFT + 0.5 * UP + shift)
-                yt_frame[r].become(frame("y true", ty, ORIGIN)).shift(3.15 * LEFT + 0.5 * UP + shift)
-                # t_frame[r].become(vector_frame(t_axis, tx, ty)).shift(2.30 * LEFT + 3.5 * UP + shift)
-
-                xs_frame[r].become(frame("x samp", sx, ORIGIN)).shift(4.00 * LEFT - 0.5 * UP + shift)
-                ys_frame[r].become(frame("y samp", sy, ORIGIN)).shift(3.15 * LEFT - 0.5 * UP + shift)
-                # s_frame[r].become(vector_frame(s_axis, sx, sy)).shift(2.30 * LEFT - 0.5 * UP + shift)
-
-            # print("TOTAL MATCHING COST: ", fnum, total_matching / SAMPLES)
-        self.add(root)
+            xs_frame[0].become(frame("x samp", sx, ORIGIN)).shift(0.8 * LEFT - 0.9 * UP)
+            ys_frame[0].become(frame("y samp", sy, ORIGIN)).shift(0.8 * RIGHT - 0.9 * UP)
+            # s_frame[0].become(vector_frame(s_axis, sx, sy).shift(2.30 * LEFT - 0.5 * UP + shift)
 
         root.add_updater(update)
-        print("Wait", (frames.shape[1]) / 2 * FRAME_DT)
-        # self.wait(1)
+        self.add(root)
         self.wait((frames.shape[1]) / 2 * FRAME_DT)
-        # self.wait(0.06)

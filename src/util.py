@@ -18,7 +18,7 @@ def mask_indices(batch, elems):
 # This makes it easier to test out models trained on different cpu/gpu configurations than local
 # would like to see why regular torch.load isn't working perfectly right now
 def write_parameters_into_model(model, filename):
-    for param, src in zip(model.parameters(), torch.load(filename, map_location=model.device)):
+    for param, src in zip(model.parameters(), torch.load(filename, map_location=next(model.parameters()).device)):
         param.data = torch.tensor(src)
 
 

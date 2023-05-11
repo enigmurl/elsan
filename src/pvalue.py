@@ -9,8 +9,6 @@ from fluidsim.solvers.ns2d.bouss.solver import Simul
 from util import mask_tensor, get_device
 device = get_device()
 
-start_ensemble = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-
 
 def rand_prev_mask():
     prev, mask = mask_tensor()
@@ -207,13 +205,10 @@ def get_queries(seed, rot_start, b_start):
     return ls, us, ps
 
 
-def vis_seed(seed, rot_start, b_start):
+def vis_seed(e, rot_start, b_start):
     ret = []
 
-    for i in range(64):
-        torch.manual_seed(seed + i)
-        np.random.seed(seed + i)
-        
+    for i in range(DATA_OUT_FRAME):
         sx, sy = single_frame(rot_start, b_start)
         curr = []
         for x,y in zip(sx, sy):
@@ -226,21 +221,39 @@ def vis_seed(seed, rot_start, b_start):
 
 
 if __name__ == '__main__':
-    for e in range(start_ensemble, DATA_NUM_ENSEMBLES):
-        rot_start, b_start, sx, sy = get_start()
+    if len(sys.argv) < 3:
+        print("LOG", "invalid usage")
+        exit(1)
 
-        start = torch.stack((sx, sy)).transpose(0, 1)
-        if e == 0:
+    if sys.argv[1] == 'validate':
+        for e in range(int(sys.argv[2]), DATA_VALIDATION_ENSEMBLES):
+            rot_start, b_start, sx, sy = get_start()
+
+            start = torch.stack((sx, sy)).transpose(0, 1)
+
             vis = vis_seed(e, rot_start, b_start).float()
-            torch.save(start.cpu().half(), DATA_DIR + "ensemble/vis_seed.pt")
-            torch.save(vis.cpu().half(), DATA_DIR + "ensemble/vis_frames.pt")
-        lowers, uppers, masks = get_queries(e, rot_start, b_start)
-        torch.save(start.cpu().half(), DATA_DIR + "ensemble/seed_" + str(e) + ".pt")
-        answers = simulate_ensemble(e, rot_start, b_start, lowers, uppers)
-        print("Ensemble finish", e)
+            torch.save(start.cpu().half(), DATA_DIR + "validate/seed_" + str(e) + ".pt")
+            torch.save(vis.cpu().half(), DATA_DIR + "validate/frames_" + str(e) + ".pt")
 
-        for j, (l, u, a) in enumerate(zip(lowers, uppers, answers)):
-            torch.save(l.cpu().half(), DATA_DIR + "ensemble/lowers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
-            torch.save(u.cpu().half(), DATA_DIR + "ensemble/uppers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
-            torch.save(a.cpu().half(), DATA_DIR + "ensemble/answer_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
-            print("Ensemble finish batch:", e, j, start.shape, l.shape, u.shape, a.shape)
+    elif sys.argv[1] == 'training':
+        for e in range(int(sys.argv[2]), DATA_NUM_ENSEMBLES):
+            rot_start, b_start, sx, sy = get_start()
+
+            start = torch.stack((sx, sy)).transpose(0, 1)
+
+            lowers, uppers, masks = get_queries(e, rot_start, b_start)
+            torch.save(start.cpu().half(), DATA_DIR + "ensemble/seed_" + str(e) + ".pt")
+            answers = simulate_ensemble(e, rot_start, b_start, lowers, uppers)
+
+            for j, (l, u, a) in enumerate(zip(lowers, uppers, answers)):
+                torch.save(l.cpu().half(),
+                           DATA_DIR + "ensemble/lowers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+                torch.save(u.cpu().half(),
+                           DATA_DIR + "ensemble/uppers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+                torch.save(a.cpu().half(),
+                           DATA_DIR + "ensemble/answer_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+
+            print("LOG", "finish", e)
+    else:
+        print("LOG", "invalid mode")
+
