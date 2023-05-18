@@ -2,7 +2,7 @@
 
 
 ## Generating training data
-```python3 pvalue.py 0 | grep LOG```
+```python3 pvalue.py training 0 | grep LOG```
 ## First round of training
 ```python3 run_model.py```
 ## Generating clipping data

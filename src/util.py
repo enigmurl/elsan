@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from functools import cache
 
-from hyperparameters import DATA_FRAME_SIZE
+from hyperparameters import *
 
 
 def get_device(no_mps=False):
@@ -13,6 +13,20 @@ def get_device(no_mps=False):
 
 def mask_indices(batch, elems):
     return (torch.rand(batch) * elems).long()
+
+
+def orthonet_model():
+    from model import Orthonet
+
+    device = get_device()
+    model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
+                     pruning_size=O_PRUNING_SIZE,
+                     kernel_size=O_KERNEL_SIZE,
+                     dropout_rate=O_DROPOUT_RATE,
+                     time_range=O_TIME_RANGE
+                     ).to(device)
+    write_parameters_into_model(model, 'model_state.pt')
+    return model.to(device)
 
 
 # This makes it easier to test out models trained on different cpu/gpu configurations than local

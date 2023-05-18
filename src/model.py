@@ -285,12 +285,23 @@ class Orthonet(nn.Module):
 
         self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
-    def forward(self, x):
-        return x
+        self.remove_batch_norm()
 
-    def eval(self):
-        super(Orthonet, self).eval()
+    def forward(self, x, t):
+        error = self.base(x)
+        out = []
+        for _ in range(t):
+            z = ran_sample(self.query, error, None)
+            out.append(self.clipping(torch.cat((z, error), dim=-3)))
+            error = self.transition(error)
 
+        raw = torch.stack(out)
+        raw = torch.transpose(raw, 0, 1)
+        raw = torch.flatten(raw, 1, 2)
+
+        return raw
+
+    def remove_batch_norm(self):
         for m in self.modules():
             for c in m.children():
                 if isinstance(c, nn.BatchNorm2d):
@@ -298,3 +309,8 @@ class Orthonet(nn.Module):
                     c.affine = True
 
         return self
+
+    def eval(self):
+        super(Orthonet, self).eval()
+
+

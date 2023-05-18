@@ -99,7 +99,7 @@ def single_frame(rot_s, b_s):
 
 
 def inverse_contribution_measure(x_targ, y_targ, x_pred, y_pred):
-    return torch.sqrt(torch.mean(torch.square(x_targ - x_pred) + torch.square(y_targ - y_pred)))
+    return torch.mean(torch.square(x_targ - x_pred) + torch.square(y_targ - y_pred)) ** CONFIDENCE_SEPARATOR_POWER
 
 
 def simulate_ensemble(seed, rot_start, b_start, ls, us):
@@ -208,7 +208,7 @@ def get_queries(seed, rot_start, b_start):
 def vis_seed(e, rot_start, b_start):
     ret = []
 
-    for i in range(DATA_OUT_FRAME):
+    for i in range(V_BATCH_SIZE):
         sx, sy = single_frame(rot_start, b_start)
         curr = []
         for x,y in zip(sx, sy):
@@ -221,22 +221,27 @@ def vis_seed(e, rot_start, b_start):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("LOG", "invalid usage")
-        exit(1)
+    with torch.no_grad():
+        if len(sys.argv) < 3:
+            print("LOG", "invalid usage")
+            exit(1)
 
-    if sys.argv[1] == 'validate':
-        for e in range(int(sys.argv[2]), DATA_VALIDATION_ENSEMBLES):
+        if sys.argv[1] == 'validate':
+            # for e in range(int(sys.argv[2]), DATA_VALIDATION_ENSEMBLES):
+            e = int(sys.argv[2])
+
             rot_start, b_start, sx, sy = get_start()
 
             start = torch.stack((sx, sy)).transpose(0, 1)
-
             vis = vis_seed(e, rot_start, b_start).float()
             torch.save(start.cpu().half(), DATA_DIR + "validate/seed_" + str(e) + ".pt")
             torch.save(vis.cpu().half(), DATA_DIR + "validate/frames_" + str(e) + ".pt")
 
-    elif sys.argv[1] == 'training':
-        for e in range(int(sys.argv[2]), DATA_NUM_ENSEMBLES):
+            print("LOG", "finish", e)
+
+        elif sys.argv[1] == 'training':
+            # for e in range(int(sys.argv[2]), DATA_NUM_ENSEMBLES):
+            e = int(sys.argv[2])
             rot_start, b_start, sx, sy = get_start()
 
             start = torch.stack((sx, sy)).transpose(0, 1)
@@ -254,6 +259,6 @@ if __name__ == '__main__':
                            DATA_DIR + "ensemble/answer_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
 
             print("LOG", "finish", e)
-    else:
-        print("LOG", "invalid mode")
+        else:
+            print("LOG", "invalid mode")
 

@@ -54,8 +54,22 @@ class WeightedSpatialMSELoss(torch.nn.Module):
         self.weights = weights
 
     def forward(self, preds, trues):
-        print(self.loss(preds, trues).shape, self.weights.shape)
         return self.loss(preds, trues).mean(4).mean(3).mean(2).mean(0) * self.weights
+
+
+def full_divergence(preds, trues):
+    u = trues[:, :1]
+    v = trues[:, -1:]
+    u_x = field_grad(u, 0)
+    v_y = field_grad(v, 1)
+    div_true = v_y + u_x
+
+    u = preds[:, :1]
+    v = preds[:, -1:]
+    u_x = field_grad(u, 0)
+    v_y = field_grad(v, 1)
+    div_pred = v_y + u_x
+    return torch.mean(torch.abs(div_true - div_pred))
 
 
 class DivergenceLoss(torch.nn.Module):
@@ -99,6 +113,12 @@ class DivergenceLoss2(torch.nn.Module):
 
 def vorticity(u, v):
     return field_grad(v, 0) - field_grad(u, 1)
+
+
+def full_vorticity(preds, trues):
+    u, v = trues[:, :1], trues[:, -1:]
+    u_pred, v_pred = preds[:, :1], preds[:, -1:]
+    return torch.sqrt(torch.mean(torch.square(vorticity(u, v) - vorticity(u_pred, v_pred))))
 
 
 class VorticityLoss(torch.nn.Module):
@@ -152,7 +172,7 @@ def field_grad(f, dim):
 
 
 def TKE(preds):
-    preds = preds.reshape(preds.shape[0], -1, 2, 64, 64)
+    preds = preds.reshape(preds.shape[0], -1, 2, 63, 63)
     mean_flow = torch.mean(preds, dim=1).unsqueeze(1)
     tur_preds = torch.mean((preds - mean_flow) ** 2, dim=1)
     tke = (tur_preds[:, 0] + tur_preds[:, 1]) / 2

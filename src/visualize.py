@@ -75,8 +75,8 @@ class VisualizeSigma(Scene):
         render_count += 1
 
         seed, frames = self.load_rand()
-        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(1)], dim=0)
-        model = self.model().eval()
+        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(16)], dim=0)
+        model = self.model()  # .eval()
         base = model.base
         trans = model.transition
         query = model.query
@@ -104,6 +104,8 @@ class VisualizeSigma(Scene):
         xx = seed
         error = base(xx)
 
+        full = model(xx, 32)
+
         def update(m, dt):
             nonlocal t, fnum, xx, error
             if render_count == 1:
@@ -119,7 +121,12 @@ class VisualizeSigma(Scene):
             d = np.random.randint(0, len(frames))
             samp = ran_sample(query, error, frames[:, mod: mod + 2])
             samp = torch.cat([samp, error], dim=-3)
-            samp = clipping(samp)
+            samp0 = clipping(samp)
+            samp = full[:, mod: mod + 2]
+            print(torch.sqrt(torch.mean(torch.square(full - frames[0]))))
+            print(torch.sqrt(torch.mean(torch.square(samp0 - frames[0, mod: mod + 2]))))
+
+
 
             tx = frames[d, mod].cpu().data.numpy()
             ty = frames[d, mod + 1].cpu().data.numpy()
