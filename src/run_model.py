@@ -20,7 +20,7 @@ if __name__ == '__main__':
                      time_range=O_TIME_RANGE
                      ).to(device)
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'clipping' or sys.argv[1] == 'recover':
+    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):
         write_parameters_into_model(model, 'model_state.pt')
 
     base = model.base
