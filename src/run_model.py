@@ -29,7 +29,7 @@ if __name__ == '__main__':
     clipping = model.clipping
     model = nn.DataParallel(model)
 
-    train_set = EnsembleDataset(O_TRAIN_INDICES, O_TRAIN_DIREC, O_INPUT_LENGTH)
+    train_set = EnsembleDataset(O_TRAIN_INDICES, O_RUN_SIZE, O_TRAIN_DIREC, O_INPUT_LENGTH)
     clipping_set = ClippingDataset(C_TRAIN_INDICES, C_TRAIN_DIREC)
 
     # workers causing bugs on m1, likely due to lack of memory?
