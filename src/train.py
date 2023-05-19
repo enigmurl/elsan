@@ -96,7 +96,7 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
             if f < index - 1:
                 error = trans(error)
 
-            if f == index - 1 or f % WARMUP_SLOPE == 0:
+            if f == index - 1 or f % WARMUP_SLOPE == WARMUP_SLOPE - 1:
                 train_emse.append(e_loss.item() / frames.shape[1])
 
                 optimizer.zero_grad()
@@ -104,8 +104,10 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
                 optimizer.step()
                 e_loss = 0
 
+                error = error.detach()
 
-    return round(np.sqrt(np.mean(train_emse)), 5)
+
+    return round(np.mean(train_emse), 5)
 
 
 # TODO

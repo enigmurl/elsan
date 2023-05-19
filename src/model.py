@@ -292,8 +292,8 @@ class Orthonet(nn.Module):
         out = []
         for _ in range(t):
             z = ran_sample(self.query, error, None)
-            # out.append(self.clipping(torch.cat((z, error), dim=-3)))
-            out.append(z)
+            out.append(self.clipping(torch.cat((z, error), dim=-3)))
+            # out.append(z)
             error = self.transition(error)
 
         raw = torch.stack(out)
