@@ -81,10 +81,9 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
         e_loss = 0
 
         seed = seed.detach()
-        seed = seed[:, :O_MAX_ENSEMBLE_COUNT]
         frames = torch.flatten(frames.detach()[:, :O_MAX_ENSEMBLE_COUNT], 0, 1)
 
-        index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
+        index = min(2 * (e_num + 1) * WARMUP_SLOPE, frames.shape[1])
         frames = frames[:, :index]
 
         seed = torch.repeat_interleave(seed, frames.shape[0] // seed.shape[0], dim=0)
