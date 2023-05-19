@@ -1,9 +1,26 @@
 import torch
 import numpy as np
 from torch.utils import data
+
+from hyperparameters import WARMUP_SLOPE
 from util import get_device
 device = get_device()
 
+
+class EnsembleDataset(data.Dataset):
+    def __init__(self, index, direc, input_length):
+        super(EnsembleDataset, self).__init__()
+        self.map = index
+        self.direc = direc
+        self.input_length = input_length
+
+    def __len__(self):
+        return len(self.map)
+
+    def __getitem__(self, index):
+        seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
+        frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)
+        return seed.float(), frames.float()
 
 class ClusteredDataset(data.Dataset):
     def __init__(self, index, direc, input_length):
@@ -53,23 +70,23 @@ def train_clipping_epoch(train_loader, clipping, optimizer):
     return np.mean(loss_a)
 
 
-def train_orthonet_epoch(train_loader, base, trans, query, optimizer, e_loss_fun):
+def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, optimizer, e_loss_fun):
     train_emse = []
 
-    for b, (seed, lower, upper, frames) in enumerate(train_loader):
+    for b, (seed, frames) in enumerate(train_loader):
         e_loss = 0
 
-        index = frames.shape[1]  # how many frames to go into future, some variations have a warmup period
+        seed = seed.detach()[:1]
+        frames = frames.detach()[0]
 
-        seed = seed.to(device).detach()
-        lower = lower.to(device)[:, :index].detach()
-        upper = upper.to(device)[:, :index].detach()
-        frames = frames.to(device)[:, :index].detach()
+        index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
+        frames = frames[:, :index]
 
+        seed = torch.tile(seed, (frames.shape[0], 1, 1, 1))
         error = base(seed)
 
         for f, y in enumerate(frames.transpose(0, 1)):
-            dloss = e_loss_fun(query, lower[:, f], upper[:, f], error, y)
+            dloss = e_loss_fun(query, clipping, error, y)
             e_loss += dloss
 
             if f < index - 1:

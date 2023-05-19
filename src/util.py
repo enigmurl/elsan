@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from functools import cache
+from scipy.optimize import linear_sum_assignment
 
 from hyperparameters import *
 
@@ -58,6 +59,16 @@ def mask_tensor(n=DATA_FRAME_SIZE):
         mask[i, r::step, c::step] = ~prev[i, r::step, c::step]
 
     return prev.to(get_device()), mask.to(get_device())
+
+
+def rmse_lsa_unary_frame(y_true, y_pred):
+    matrix = torch.zeros((y_true.shape[0], y_pred.shape[0]))
+    for i in range(y_true.shape[0]):
+        for j in range(y_pred.shape[0]):
+            matrix[i][j] = torch.sqrt(torch.mean(torch.square(y_true[i] -
+                                                              y_pred[j])))
+    row_ind, col_ind = linear_sum_assignment(matrix.detach().numpy())
+    return torch.sqrt(torch.mean(torch.square(y_true[row_ind] - y_pred[col_ind])))
 
 
 if __name__ == '__main__':

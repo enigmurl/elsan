@@ -7,7 +7,7 @@ import sys
 from hyperparameters import *
 from model import Orthonet
 from penalty import DivergenceLoss, BigErrorLoss
-from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch
+from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset
 from util import get_device, write_parameters_into_model, save_parameters_from_model
 device = get_device()
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     clipping = model.clipping
     model = nn.DataParallel(model)
 
-    train_set = ClusteredDataset(O_TRAIN_INDICES, O_TRAIN_DIREC, O_INPUT_LENGTH)
+    train_set = EnsembleDataset(O_TRAIN_INDICES, O_TRAIN_DIREC, O_INPUT_LENGTH)
     clipping_set = ClippingDataset(C_TRAIN_INDICES, C_TRAIN_DIREC)
 
     # workers causing bugs on m1, likely due to lack of memory?
@@ -85,7 +85,7 @@ if __name__ == '__main__':
             # im = model(xx)
             # ran_sample(model, im, prev_error,
             #            frames[:, 60:62])
-            emse = train_orthonet_epoch(train_loader, base, trans, query, optimizer, error_fun)
+            emse = train_orthonet_epoch(train_loader, i, base, trans, query, clipping, optimizer, error_fun)
 
             train_emse.append(emse)
             #

@@ -205,15 +205,14 @@ def get_queries(seed, rot_start, b_start):
     return ls, us, ps
 
 
-def vis_seed(e, rot_start, b_start):
+def vis_seed(bs, rot_start, b_start):
     ret = []
 
-    for i in range(V_BATCH_SIZE):
+    for i in range(bs):
         sx, sy = single_frame(rot_start, b_start)
         curr = []
-        for x,y in zip(sx, sy):
-            curr.append(np.array(x.cpu().data))
-            curr.append(np.array(y.cpu().data))
+        for x, y in zip(sx, sy):
+            curr.append([np.array(x.cpu().data), np.array(y.cpu().data)])
 
         ret.append(curr)
 
@@ -233,7 +232,7 @@ if __name__ == '__main__':
             rot_start, b_start, sx, sy = get_start()
 
             start = torch.stack((sx, sy)).transpose(0, 1)
-            vis = vis_seed(e, rot_start, b_start).float()
+            vis = vis_seed(V_BATCH_SIZE, rot_start, b_start).float()
             torch.save(start.cpu().half(), DATA_DIR + "validate/seed_" + str(e) + ".pt")
             torch.save(vis.cpu().half(), DATA_DIR + "validate/frames_" + str(e) + ".pt")
 
@@ -245,18 +244,10 @@ if __name__ == '__main__':
             rot_start, b_start, sx, sy = get_start()
 
             start = torch.stack((sx, sy)).transpose(0, 1)
-
-            lowers, uppers, masks = get_queries(e, rot_start, b_start)
+            start = torch.flatten(start, 0, 1)
+            vis = vis_seed(DATA_COUNT_IN_ENSEMBLE, rot_start, b_start).float()
             torch.save(start.cpu().half(), DATA_DIR + "ensemble/seed_" + str(e) + ".pt")
-            answers = simulate_ensemble(e, rot_start, b_start, lowers, uppers)
-
-            for j, (l, u, a) in enumerate(zip(lowers, uppers, answers)):
-                torch.save(l.cpu().half(),
-                           DATA_DIR + "ensemble/lowers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
-                torch.save(u.cpu().half(),
-                           DATA_DIR + "ensemble/uppers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
-                torch.save(a.cpu().half(),
-                           DATA_DIR + "ensemble/answer_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+            torch.save(vis.cpu().half(), DATA_DIR + "ensemble/frames_" + str(e) + ".pt")
 
             print("LOG", "finish", e)
         else:

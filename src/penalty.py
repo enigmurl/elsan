@@ -1,6 +1,7 @@
 import torch
 from hyperparameters import *
-from util import get_device
+from model import ran_sample
+from util import *
 device = get_device()
 
 
@@ -8,12 +9,13 @@ class BigErrorLoss(torch.nn.Module):
     def __init__(self):
         super(BigErrorLoss, self).__init__()
 
-    def forward(self, orthonet, lower, upper, actual_pruning, expected):
-        query = torch.cat((lower, upper), dim=1)
-        loss = orthonet(actual_pruning, query)
-        mask = torch.isclose(query[:, :2],
-                             torch.tensor(DATA_LOWER_QUERY_VALUE, device=device)).repeat(1, len(CON_LIST), 1, 1)
-        return torch.sqrt(torch.mean(torch.square(loss[mask] - expected[mask])))
+    def forward(self, query, clipping, pruning, frames):
+        res = ran_sample(query, pruning, None)
+        pre_clip_loss = rmse_lsa_unary_frame(res, frames)
+        post_res = clipping(torch.cat((res, pruning), dim=1))
+        post_clip_loss = rmse_lsa_unary_frame(post_res, frames)
+
+        return (pre_clip_loss + post_clip_loss) / 2
 
 
 class MagnitudeLoss(torch.nn.Module):
