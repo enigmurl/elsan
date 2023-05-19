@@ -8,16 +8,19 @@ device = get_device()
 
 
 class EnsembleDataset(data.Dataset):
-    def __init__(self, index, direc, input_length):
+    def __init__(self, index, run_size, direc, input_length):
         super(EnsembleDataset, self).__init__()
         self.map = index
         self.direc = direc
+        self.run_size = run_size
         self.input_length = input_length
 
     def __len__(self):
-        return len(self.map)
+        return self.run_size
 
     def __getitem__(self, index):
+        # split epochs into multiple epochs
+        index = torch.randint(0, len(self.map), (1,))
         seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
         frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)
         return seed.float(), frames.float()
