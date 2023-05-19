@@ -20,7 +20,7 @@ class EnsembleDataset(data.Dataset):
 
     def __getitem__(self, index):
         # split epochs into multiple epochs
-        index = torch.randint(0, len(self.map), (1,))
+        index = np.randint(0, len(self.map))
         seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
         frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)
         return seed.float(), frames.float()
