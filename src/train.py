@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.utils import data
 
-from hyperparameters import WARMUP_SLOPE
+from hyperparameters import WARMUP_SLOPE, O_MAX_ENSEMBLE_COUNT
 from util import get_device
 device = get_device()
 
@@ -20,10 +20,11 @@ class EnsembleDataset(data.Dataset):
 
     def __getitem__(self, index):
         # split epochs into multiple epochs
-        index = np.randint(0, len(self.map))
+        index = np.random.randint(0, len(self.map))
         seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
         frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)
         return seed.float(), frames.float()
+
 
 class ClusteredDataset(data.Dataset):
     def __init__(self, index, direc, input_length):
@@ -79,8 +80,9 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
     for b, (seed, frames) in enumerate(train_loader):
         e_loss = 0
 
-        seed = seed.detach()[:1]
-        frames = torch.flatten(frames.detach(), 0, 1)
+        seed = seed.detach()
+        seed = seed[:, :O_MAX_ENSEMBLE_COUNT]
+        frames = torch.flatten(frames.detach()[:, :O_MAX_ENSEMBLE_COUNT], 0, 1)
 
         index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
         frames = frames[:, :index]

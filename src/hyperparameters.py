@@ -43,7 +43,7 @@ O_TIME_RANGE = 1
 # training
 O_MAX_EPOCH = 1024
 O_BATCH_SIZE = 4
-O_RUN_SIZE = 64
+O_RUN_SIZE = 512
 O_LEARNING_RATE = 1e-3
 
 
@@ -51,6 +51,7 @@ C_BATCH_SIZE = 128
 
 O_TRAIN_DIREC = "../data/ensemble/"
 O_TRAIN_INDICES = list(range(0, 512))
+O_MAX_ENSEMBLE_COUNT = 16
 C_TRAIN_DIREC = "../data/clipping/"
 C_TRAIN_INDICES = list(range(0, int(2 ** 15)))
 
