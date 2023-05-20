@@ -105,7 +105,7 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
                 e_loss = 0
 
                 error = error.detach()
-
+                print("Keep alive")
 
     return round(np.mean(train_emse), 5)
 
