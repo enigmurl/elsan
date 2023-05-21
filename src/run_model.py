@@ -7,7 +7,8 @@ import sys
 from hyperparameters import *
 from model import Orthonet
 from penalty import DivergenceLoss, BigErrorLoss
-from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset
+from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
+    train_base_orthonet_epoch
 from util import get_device, write_parameters_into_model, save_parameters_from_model
 device = get_device()
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -20,8 +21,9 @@ if __name__ == '__main__':
                      time_range=O_TIME_RANGE
                      ).to(device)
 
-    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):
-        write_parameters_into_model(model, 'model_state.pt')
+    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover' or sys.argv[1] == 'base'):
+        model.load_state_dict(torch.load("model.pt"))
+        # write_parameters_into_model(model, 'model_state.pt')
 
     base = model.base
     trans = model.transition
@@ -30,6 +32,7 @@ if __name__ == '__main__':
     model = nn.DataParallel(model)
 
     train_set = EnsembleDataset(O_TRAIN_INDICES, O_RUN_SIZE, O_TRAIN_DIREC, O_INPUT_LENGTH)
+    base_set = ClusteredDataset(list(range(0, 32)), '../data/base/', O_INPUT_LENGTH)
     clipping_set = ClippingDataset(C_TRAIN_INDICES, C_TRAIN_DIREC)
 
     # workers causing bugs on m1, likely due to lack of memory?
@@ -64,6 +67,49 @@ if __name__ == '__main__':
 
             torch.save(model, "model.pt")
             save_parameters_from_model(model, 'model_state.pt')
+            end = time.time()
+
+            print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
+    elif len(sys.argv) > 1 and sys.argv[1] == 'base':
+        print("Training orthonet")
+
+        for i in range(O_MAX_EPOCH):
+            print("Epoch", i)
+
+            start = time.time()
+
+            torch.cuda.empty_cache()
+
+            model.train()
+            # error = base(xx)
+            # ran_sample(query, error, frames[:, 12:14])
+            # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
+            # im = model(xx)
+            # ran_sample(model, im, prev_error,
+            #            frames[:, 60:62])
+            emse = train_base_orthonet_epoch(base_set, base, trans, query, optimizer, error_fun)
+            train_emse.append(emse)
+            #
+            # model.eval()
+            # emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
+            # valid_emse.append(emse)
+            # valid_emse = [min_mse * 0.5]
+            # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
+
+            torch.save(model.state_dict(), "model.pt")
+            save_parameters_from_model(model, 'model_state.pt')
+            #
+            # if valid_emse[-1] < min_mse:
+            #     min_mse = valid_emse[-1]
+            #     best_model = model
+            #     # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
+            #     # preds, trues, loss_curve = test_epoch(test_loader, best_model, loss_fun, error_fun)
+            #     #
+            #     # torch.save({"preds": preds,
+            #     #             "trues": trues,
+            #     #             "loss_curve": loss_curve},
+            #     #            "results.pt")
+
             end = time.time()
 
             print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
