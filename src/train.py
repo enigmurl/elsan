@@ -37,7 +37,7 @@ class ClusteredDataset(data.Dataset):
         return len(self.map)
 
     def __getitem__(self, index):
-        seed = torch.flatten(torch.load(self.direc + 'seed_' + str(index // 8) + '.pt').to(device), 0, 1)
+        seed = torch.load(self.direc + 'seed_' + str(index // 8) + '.pt').to(device)
         lower = torch.load(self.direc + 'lowers_' + str(index) + '.pt').to(device)
         upper = torch.load(self.direc + 'uppers_' + str(index) + '.pt').to(device)
         frames = torch.load(self.direc + 'answer_' + str(index) + '.pt').to(device)
@@ -74,6 +74,39 @@ def train_clipping_epoch(train_loader, clipping, optimizer):
     return np.mean(loss_a)
 
 
+def train_base_orthonet_epoch(train_loader, base, trans, query, optimizer, e_loss_fun):
+    train_emse = []
+
+    for b, (seed, lower, upper, frames) in enumerate(train_loader):
+        e_loss = 0
+
+        index = frames.shape[1]  # how many frames to go into future, some variations have a warmup period
+
+        seed = seed.to(device).detach()
+        lower = lower.to(device)[:, :index].detach()
+        upper = upper.to(device)[:, :index].detach()
+        frames = frames.to(device)[:, :index].detach()
+
+        error = base(seed)
+
+        for f, y in enumerate(frames.transpose(0, 1)):
+            dloss = e_loss_fun(query, lower[:, f], upper[:, f], error, y)
+            e_loss += dloss
+
+            if f < index - 1:
+                error = trans(error)
+
+        full_loss = e_loss
+
+        train_emse.append(e_loss.item() / frames.shape[1])
+
+        optimizer.zero_grad()
+        full_loss.backward()
+        optimizer.step()
+
+    return round(np.mean(train_emse), 5)
+
+
 def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, optimizer, e_loss_fun):
     train_emse = []
 
@@ -83,7 +116,7 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
         seed = seed.detach()
         frames = torch.flatten(frames.detach()[:, :O_MAX_ENSEMBLE_COUNT], 0, 1)
 
-        index = min(2 * (e_num + 1) * WARMUP_SLOPE, frames.shape[1])
+        index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
         frames = frames[:, :index]
 
         seed = torch.repeat_interleave(seed, frames.shape[0] // seed.shape[0], dim=0)
@@ -97,7 +130,7 @@ def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, opti
                 error = trans(error)
 
             if f == index - 1 or f % WARMUP_SLOPE == WARMUP_SLOPE - 1:
-                train_emse.append(e_loss.item() / frames.shape[1])
+                train_emse.append(e_loss.item() / WARMUP_SLOPE)
 
                 optimizer.zero_grad()
                 e_loss.backward()

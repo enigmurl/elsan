@@ -250,6 +250,25 @@ if __name__ == '__main__':
             torch.save(vis.cpu().half(), DATA_DIR + "ensemble/frames_" + str(e) + ".pt")
 
             print("LOG", "finish", e)
+        elif sys.argv[1] == 'base':
+            e = int(sys.argv[2])
+            rot_start, b_start, sx, sy = get_start()
+
+            start = torch.stack((sx, sy)).transpose(0, 1)
+            start = torch.flatten(start, 0, 1)
+            lowers, uppers, masks = get_queries(e, rot_start, b_start)
+            torch.save(start.cpu().half(), DATA_DIR + "base/seed_" + str(e) + ".pt")
+            answers = simulate_ensemble(e, rot_start, b_start, lowers, uppers)
+
+            for j, (l, u, a) in enumerate(zip(lowers, uppers, answers)):
+                torch.save(l.cpu().half(),
+                           DATA_DIR + "base/lowers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+                torch.save(u.cpu().half(),
+                           DATA_DIR + "base/uppers_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+                torch.save(a.cpu().half(),
+                           DATA_DIR + "base/answer_" + str(e * DATA_QUERIES_PER_ENSEMBLE + j) + ".pt")
+
+            print("LOG", "finish", e)
         else:
             print("LOG", "invalid mode")
 

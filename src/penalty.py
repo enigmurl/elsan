@@ -5,6 +5,18 @@ from util import *
 device = get_device()
 
 
+class BaseErrorLoss(torch.nn.Module):
+    def __init__(self):
+        super(BaseErrorLoss, self).__init__()
+
+    def forward(self, orthonet, lower, upper, actual_pruning, expected):
+        query = torch.cat((lower, upper), dim=1)
+        loss = orthonet(actual_pruning, query)
+        mask = torch.isclose(query[:, :2],
+                             torch.tensor(DATA_LOWER_QUERY_VALUE, device=device)).repeat(1, len(CON_LIST), 1, 1)
+        return torch.sqrt(torch.mean(torch.square(loss[mask] - expected[mask])))
+
+
 class BigErrorLoss(torch.nn.Module):
     def __init__(self):
         super(BigErrorLoss, self).__init__()

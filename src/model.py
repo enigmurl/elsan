@@ -285,7 +285,7 @@ class Orthonet(nn.Module):
 
         self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
-        self.remove_batch_norm()
+        # self.remove_batch_norm()
 
     def forward(self, x, t):
         error = self.base(x)
