@@ -134,7 +134,7 @@ def train_orthonet_epoch(train_loader, e_num, model, optimizer):
             full_vector = torch.cat((res, error), dim=1)
             overall = model.clipping(full_vector)
             post_clip_loss = rmse_lsa_unary_frame(overall, frames[:, running], O_MAX_ENSEMBLE_COUNT)
-            e_loss += post_clip_loss
+            e_loss += post_clip_loss / len(decomp)
 
         e_loss.backward()
         optimizer.step()
