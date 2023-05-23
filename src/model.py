@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from hyperparameters import *
 from util import get_device, mask_tensor
+
 device = get_device()
 
 
@@ -29,46 +30,45 @@ def sample(channels: torch.tensor, t):
 
 
 def ran_sample(model, pruning_error, expected):
-    with torch.no_grad():
-        output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
-                            device=pruning_error.device)
+    output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
+                        device=pruning_error.device)
 
-        masks_ = mask_tensor()
-        masks_ = masks_[0].to(pruning_error.device), masks_[1].to(pruning_error.device)
-        prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (len(pruning_error), 1, 1, 1)), \
-                       torch.tile(torch.unsqueeze(masks_[1], 0), (len(pruning_error), 1, 1, 1))
+    masks_ = mask_tensor()
+    masks_ = masks_[0].to(pruning_error.device), masks_[1].to(pruning_error.device)
+    prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (len(pruning_error), 1, 1, 1)), \
+                   torch.tile(torch.unsqueeze(masks_[1], 0), (len(pruning_error), 1, 1, 1))
 
-        rmse = []
-        for i in range(masks.shape[1]):
-            query = torch.full((pruning_error.shape[0], 4, pruning_error.shape[-2], pruning_error.shape[-1]),
-                               DATA_UPPER_UNKNOWN_VALUE, device=pruning_error.device)
-            query[:, :2] = DATA_LOWER_UNKNOWN_VALUE
-            m = masks[:, i]
-            real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
-            real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-            mask2 = torch.tile(real_mask, (2, 1, 1))
-            query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-            query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
+    rmse = []
+    for i in range(masks.shape[1]):
+        query = torch.full((pruning_error.shape[0], 4, pruning_error.shape[-2], pruning_error.shape[-1]),
+                           DATA_UPPER_UNKNOWN_VALUE, device=pruning_error.device)
+        query[:, :2] = DATA_LOWER_UNKNOWN_VALUE
+        m = masks[:, i]
+        real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
+        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
+        mask2 = torch.tile(real_mask, (2, 1, 1))
+        query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
+        query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
 
-            # compute query
-            query[0:, :2][mask2] = DATA_LOWER_QUERY_VALUE
-            query[0:, 2:][mask2] = DATA_UPPER_QUERY_VALUE
+        # compute query
+        query[0:, :2][mask2] = DATA_LOWER_QUERY_VALUE
+        query[0:, 2:][mask2] = DATA_UPPER_QUERY_VALUE
 
-            predicted = model(pruning_error, query)
-            start = NormalDist().cdf(CON_LIST[0])
-            delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
-                                                                           device=pruning_error.device))
+        predicted = model(pruning_error, query)
+        start = NormalDist().cdf(CON_LIST[0])
+        delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
+                                                                       device=pruning_error.device))
 
-            output[:, :2][mask2] = delta[mask2]
-            output[:, 2:][mask2] = delta[mask2]
-
-            if expected is not None:
-                rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
+        output[:, :2][mask2] = delta[mask2]
+        output[:, 2:][mask2] = delta[mask2]
 
         if expected is not None:
-            print(f"RMSE: {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+            rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
 
-        return output[:, :2]
+    if expected is not None:
+        print(f"RMSE: {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
+
+    return output[:, :2]
 
 
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
@@ -277,13 +277,28 @@ class Orthonet(nn.Module):
                                dropout_rate=dropout_rate,
                                time_range=time_range)
 
-        self.transition = TransitionPruner(pruning_size,
-                                           kernel=kernel_size,
-                                           dropout=dropout_rate)
-
         self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
         self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
+
+        self.transition_1 = TransitionPruner(pruning_size,
+                                             kernel=kernel_size,
+                                             dropout=dropout_rate)
+        self.transition_3 = TransitionPruner(pruning_size,
+                                             kernel=kernel_size,
+                                             dropout=dropout_rate)
+        self.transition_9 = TransitionPruner(pruning_size,
+                                             kernel=kernel_size,
+                                             dropout=dropout_rate)
+        self.transition_27 = TransitionPruner(pruning_size,
+                                              kernel=kernel_size,
+                                              dropout=dropout_rate)
+        self.trans = {
+            1: self.transition_1,
+            3: self.transition_3,
+            9: self.transition_9,
+            27: self.transition_27
+        }
 
         # self.remove_batch_norm()
 
@@ -291,8 +306,9 @@ class Orthonet(nn.Module):
         error = self.base(x)
         out = []
         for _ in range(t):
-            z = ran_sample(self.query, error, None)
-            out.append(self.clipping(torch.cat((z, error), dim=-3)))
+            # z = ran_sample(self.query, error, None)
+            z = torch.normal(0, 1, (x.shape[0], 2, 63, 63)).to(device)
+            out.append(self.clipping_1(torch.cat((z, error), dim=-3)))
             # out.append(z)
             error = self.transition(error)
 
@@ -313,5 +329,3 @@ class Orthonet(nn.Module):
 
     def eval(self):
         super(Orthonet, self).eval()
-
-

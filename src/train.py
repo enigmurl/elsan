@@ -3,7 +3,8 @@ import numpy as np
 from torch.utils import data
 
 from hyperparameters import WARMUP_SLOPE, O_MAX_ENSEMBLE_COUNT
-from util import get_device
+from util import get_device, ternary_decomp, rmse_lsa_unary_frame
+
 device = get_device()
 
 
@@ -20,9 +21,10 @@ class EnsembleDataset(data.Dataset):
 
     def __getitem__(self, index):
         # split epochs into multiple epochs
-        index = np.random.randint(0, len(self.map))
+        # index = np.random.randint(0, len(self.map))
+        # n = np.random.randint(0, 64 - O_MAX_ENSEMBLE_COUNT)
         seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
-        frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)
+        frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)  # [n:n + O_MAX_ENSEMBLE_COUNT, ::8]
         return seed.float(), frames.float()
 
 
@@ -107,38 +109,36 @@ def train_base_orthonet_epoch(train_loader, base, trans, query, optimizer, e_los
     return round(np.mean(train_emse), 5)
 
 
-def train_orthonet_epoch(train_loader, e_num, base, trans, query, clipping, optimizer, e_loss_fun):
+def train_orthonet_epoch(train_loader, e_num, model, optimizer):
     train_emse = []
 
     for b, (seed, frames) in enumerate(train_loader):
         e_loss = 0
 
         seed = seed.detach()
-        frames = torch.flatten(frames.detach()[:, :O_MAX_ENSEMBLE_COUNT], 0, 1)
+        frames = torch.flatten(frames.detach(), 0, 1)
 
-        index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
-        frames = frames[:, :index]
+        max_index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
+        index = torch.randint(0, max_index)
 
+        decomp = ternary_decomp(index)
+
+        running = -1
         seed = torch.repeat_interleave(seed, frames.shape[0] // seed.shape[0], dim=0)
-        error = base(seed)
+        error = model.base(seed)
 
-        for f, y in enumerate(frames.transpose(0, 1)):
-            dloss = e_loss_fun(query, clipping, error, y)
-            e_loss += dloss
+        for delta in decomp:
+            running += delta
+            error = model.trans[delta](error)
+            res = torch.normal(0, 1, size=frames.shape).to(device)
+            full_vector = torch.cat((res, error), dim=1)
+            overall = model.clipping(full_vector)
+            post_clip_loss = rmse_lsa_unary_frame(overall, frames[:, running], O_MAX_ENSEMBLE_COUNT)
+            e_loss += post_clip_loss
 
-            if f < index - 1:
-                error = trans(error)
-
-            if f == index - 1 or f % WARMUP_SLOPE == WARMUP_SLOPE - 1:
-                train_emse.append(e_loss.item() / WARMUP_SLOPE)
-
-                optimizer.zero_grad()
-                e_loss.backward()
-                optimizer.step()
-                e_loss = 0
-
-                error = error.detach()
-                print("Keep alive")
+        e_loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
 
     return round(np.mean(train_emse), 5)
 

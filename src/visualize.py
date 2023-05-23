@@ -57,8 +57,9 @@ class VisualizeSigma(Scene):
 
         data = torch.load('../data/validate/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
         frames = torch.load('../data/validate/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
-
-        return torch.flatten(data, 0, 1), frames
+        print(frames.shape)
+        return torch.flatten(data, 0, 1), \
+               torch.flatten(frames.view(frames.shape[0], -1, 2, frames.shape[2], frames.shape[3]), 1, 2)
 
     def model(self):
         model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
@@ -104,7 +105,10 @@ class VisualizeSigma(Scene):
         xx = seed
         error = base(xx)
 
-        full = model(xx, 32)
+        # if render_count == 1:
+            # full = None
+        # else:
+        #     full = model(xx, 32)
 
         def update(m, dt):
             nonlocal t, fnum, xx, error
@@ -119,14 +123,13 @@ class VisualizeSigma(Scene):
                 error = trans(error)
 
             d = np.random.randint(0, len(frames))
-            samp = ran_sample(query, error, frames[:, mod: mod + 2])
+            # samp = ran_sample(query, error, frames[:, mod: mod + 2])
+            samp = torch.normal(0, 1, (xx.shape[0], 2, 63, 63)).to(device)
             samp = torch.cat([samp, error], dim=-3)
             samp0 = clipping(samp)
-            samp = full[:, mod: mod + 2]
-            print(torch.sqrt(torch.mean(torch.square(full - frames[0]))))
-            print(torch.sqrt(torch.mean(torch.square(samp0 - frames[0, mod: mod + 2]))))
-
-
+            samp = samp0
+            # samp = full[:, mod: mod + 2]
+            print(torch.sqrt(torch.mean(torch.square(samp - frames[0, mod: mod + 2]))))
 
             tx = frames[d, mod].cpu().data.numpy()
             ty = frames[d, mod + 1].cpu().data.numpy()
@@ -144,4 +147,4 @@ class VisualizeSigma(Scene):
 
         root.add_updater(update)
         self.add(root)
-        self.wait((frames.shape[1]) / 2 * FRAME_DT)
+        self.wait((frames.shape[1] + 3) / 2 * FRAME_DT)

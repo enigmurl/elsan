@@ -22,13 +22,16 @@ class BigErrorLoss(torch.nn.Module):
         super(BigErrorLoss, self).__init__()
 
     def forward(self, query, clipping, pruning, frames):
-        res = ran_sample(query, pruning, None)
-        pre_clip_loss = rmse_lsa_unary_frame(res, frames)
+        res = torch.normal(0, 1, size=frames.shape).to(device)
         post_res = clipping(torch.cat((res, pruning), dim=1))
-        post_clip_loss = rmse_lsa_unary_frame(post_res, frames)
+        post_clip_loss = rmse_lsa_unary_frame(post_res, frames, O_MAX_ENSEMBLE_COUNT)
+        return post_clip_loss
 
+        res = ran_sample(query, pruning, None)
+        pre_clip_loss = rmse_lsa_unary_frame(res, frames, O_MAX_ENSEMBLE_COUNT)
+        post_res = clipping(torch.cat((res, pruning), dim=1))
+        post_clip_loss = rmse_lsa_unary_frame(post_res, frames, O_MAX_ENSEMBLE_COUNT)
         return (pre_clip_loss + post_clip_loss) / 2
-
 
 class MagnitudeLoss(torch.nn.Module):
     def __init__(self, loss):

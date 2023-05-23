@@ -61,15 +61,36 @@ def mask_tensor(n=DATA_FRAME_SIZE):
     return prev.to(get_device()), mask.to(get_device())
 
 
-def rmse_lsa_unary_frame(y_true, y_pred):
-    matrix = torch.zeros((y_true.shape[0], y_pred.shape[0]))
-    for i in range(y_true.shape[0]):
-        for j in range(y_pred.shape[0]):
-            matrix[i][j] = torch.sqrt(torch.mean(torch.square(y_true[i] -
-                                                              y_pred[j])))
-    row_ind, col_ind = linear_sum_assignment(matrix.detach().numpy())
-    return torch.sqrt(torch.mean(torch.square(y_true[row_ind] - y_pred[col_ind])))
+def ternary_decomp(index):
+    ternary = []
+    while index > 0:
+        ternary.append(index % 3)
+        index //= 3
+
+    ret = []
+    for i in range(len(ternary)):
+        for j in range(ternary[i]):
+            ret.append(3 ** i)
+
+    np.random.shuffle(ret)
+    return ret
+
+
+def rmse_lsa_unary_frame(y_true, y_pred, ensemble_size):
+    rmse = 0
+    for k in range(y_true.shape[0] // ensemble_size):
+        z_true = y_true[ensemble_size * k: ensemble_size * (k + 1)]
+        z_pred = y_pred[ensemble_size * k: ensemble_size * (k + 1)]
+
+        matrix = torch.zeros((z_true.shape[0], z_pred.shape[0]))
+        for i in range(z_true.shape[0]):
+            for j in range(z_pred.shape[0]):
+                matrix[i][j] = torch.sqrt(torch.mean(torch.square(z_true[i] -
+                                                                  z_pred[j])))
+        row_ind, col_ind = linear_sum_assignment(matrix.detach().numpy())
+        rmse += torch.sqrt(torch.mean(torch.square(z_true[row_ind] - z_pred[col_ind]))) * ensemble_size / y_true.shape[0]
+    return rmse
 
 
 if __name__ == '__main__':
-    print(mask_tensor(16))
+    print(ternary_decomp(26))

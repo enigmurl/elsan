@@ -6,7 +6,7 @@ import sys
 
 from hyperparameters import *
 from model import Orthonet
-from penalty import DivergenceLoss, BigErrorLoss
+from penalty import DivergenceLoss, BigErrorLoss, BaseErrorLoss
 from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
     train_base_orthonet_epoch
 from util import get_device, write_parameters_into_model, save_parameters_from_model
@@ -21,14 +21,16 @@ if __name__ == '__main__':
                      time_range=O_TIME_RANGE
                      ).to(device)
 
-    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover' or sys.argv[1] == 'base'):
-        model.load_state_dict(torch.load("model.pt"))
+    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):
+        state = torch.load('model.pt')
+        model.load_state_dict(state)
         # write_parameters_into_model(model, 'model_state.pt')
 
     base = model.base
     trans = model.transition
     query = model.query
     clipping = model.clipping
+    org_model = model
     model = nn.DataParallel(model)
 
     train_set = EnsembleDataset(O_TRAIN_INDICES, O_RUN_SIZE, O_TRAIN_DIREC, O_INPUT_LENGTH)
@@ -36,11 +38,13 @@ if __name__ == '__main__':
     clipping_set = ClippingDataset(C_TRAIN_INDICES, C_TRAIN_DIREC)
 
     # workers causing bugs on m1, likely due to lack of memory?
+    base_loader = data.DataLoader(base_set, batch_size=16, shuffle=True, num_workers=0)
     train_loader = data.DataLoader(train_set, batch_size=O_BATCH_SIZE, shuffle=True, num_workers=0)
     clipping_loader = data.DataLoader(clipping_set, batch_size=C_BATCH_SIZE, shuffle=True, num_workers=0)
 
     loss_fun = torch.nn.MSELoss()
     error_fun = BigErrorLoss()
+    base_error = BaseErrorLoss()
     regularizer = DivergenceLoss(torch.nn.MSELoss())
 
     optimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
@@ -87,7 +91,7 @@ if __name__ == '__main__':
             # im = model(xx)
             # ran_sample(model, im, prev_error,
             #            frames[:, 60:62])
-            emse = train_base_orthonet_epoch(base_set, base, trans, query, optimizer, error_fun)
+            emse = train_base_orthonet_epoch(base_loader, base, trans, query, optimizer, base_error)
             train_emse.append(emse)
             #
             # model.eval()
@@ -131,8 +135,7 @@ if __name__ == '__main__':
             # im = model(xx)
             # ran_sample(model, im, prev_error,
             #            frames[:, 60:62])
-            emse = train_orthonet_epoch(train_loader, i, base, trans, query, clipping, optimizer, error_fun)
-
+            emse = train_orthonet_epoch(train_loader, i, org_model, optimizer)
             train_emse.append(emse)
             #
             # model.eval()
@@ -141,7 +144,7 @@ if __name__ == '__main__':
             # valid_emse = [min_mse * 0.5]
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
 
-            torch.save(model, "model.pt")
+            torch.save(model.state_dict(), "model.pt")
             save_parameters_from_model(model, 'model_state.pt')
             #
             # if valid_emse[-1] < min_mse:
