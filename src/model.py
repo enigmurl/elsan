@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from hyperparameters import *
-from util import get_device, mask_tensor
+from util import get_device, mask_tensor, ternary_decomp
 
 device = get_device()
 
@@ -302,15 +302,27 @@ class Orthonet(nn.Module):
 
         # self.remove_batch_norm()
 
-    def forward(self, x, t):
+    def frame(self, x, t):
+        decomp = ternary_decomp(t)
         error = self.base(x)
+
+        for delta in decomp:
+            error = self.trans[delta](error)
+        res = torch.normal(0, 1, size=(x.shape[0], 8, 63, 63)).to(device)
+        full_vector = torch.cat((res, error), dim=1)
+        return self.clipping(full_vector)
+
+        raw = torch.stack(out)
+        raw = torch.transpose(raw, 0, 1)
+        raw = torch.flatten(raw, 1, 2)
+
+        return raw
+
+    def forward(self, x, t):
         out = []
-        for _ in range(t):
-            # z = ran_sample(self.query, error, None)
-            z = torch.normal(0, 1, (x.shape[0], 2, 63, 63)).to(device)
-            out.append(self.clipping_1(torch.cat((z, error), dim=-3)))
-            # out.append(z)
-            error = self.transition(error)
+        for i in range(t):
+            # out.append(self.frame(x, 48))
+            out.append(self.frame(x, i + 1))
 
         raw = torch.stack(out)
         raw = torch.transpose(raw, 0, 1)

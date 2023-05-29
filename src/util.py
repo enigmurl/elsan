@@ -6,7 +6,7 @@ from scipy.optimize import linear_sum_assignment
 from hyperparameters import *
 
 
-def get_device(no_mps=False):
+def get_device(no_mps=True):
     if no_mps:
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
@@ -72,8 +72,7 @@ def ternary_decomp(index):
         for j in range(ternary[i]):
             ret.append(3 ** i)
 
-    np.random.shuffle(ret)
-    return ret
+    return ret[::-1]
 
 
 def rmse_lsa_unary_frame(y_true, y_pred, ensemble_size):

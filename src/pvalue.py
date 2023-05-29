@@ -232,6 +232,7 @@ if __name__ == '__main__':
             rot_start, b_start, sx, sy = get_start()
 
             start = torch.stack((sx, sy)).transpose(0, 1)
+            start = torch.flatten(start, 0, 1)
             vis = vis_seed(V_BATCH_SIZE, rot_start, b_start).float()
             torch.save(start.cpu().half(), DATA_DIR + "validate/seed_" + str(e) + ".pt")
             torch.save(vis.cpu().half(), DATA_DIR + "validate/frames_" + str(e) + ".pt")

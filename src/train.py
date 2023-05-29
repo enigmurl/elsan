@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.utils import data
 
-from hyperparameters import WARMUP_SLOPE, O_MAX_ENSEMBLE_COUNT
+from hyperparameters import O_MAX_ENSEMBLE_COUNT
 from util import get_device, ternary_decomp, rmse_lsa_unary_frame
 
 device = get_device()
@@ -22,9 +22,9 @@ class EnsembleDataset(data.Dataset):
     def __getitem__(self, index):
         # split epochs into multiple epochs
         # index = np.random.randint(0, len(self.map))
-        # n = np.random.randint(0, 64 - O_MAX_ENSEMBLE_COUNT)
+        n = np.random.randint(0, 32 - O_MAX_ENSEMBLE_COUNT) if O_MAX_ENSEMBLE_COUNT < 32 else 0
         seed = torch.load(self.direc + 'seed_' + str(index) + '.pt').to(device)
-        frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)  # [n:n + O_MAX_ENSEMBLE_COUNT, ::8]
+        frames = torch.load(self.direc + 'frames_' + str(index) + '.pt').to(device)[n:n + O_MAX_ENSEMBLE_COUNT]
         return seed.float(), frames.float()
 
 
@@ -115,26 +115,32 @@ def train_orthonet_epoch(train_loader, e_num, model, optimizer):
     for b, (seed, frames) in enumerate(train_loader):
         e_loss = 0
 
-        seed = seed.detach()
-        frames = torch.flatten(frames.detach(), 0, 1)
+        seed_y = seed.detach()
+        frames_z = frames.detach()
 
-        max_index = min((e_num + 1) * WARMUP_SLOPE, frames.shape[1])
-        index = torch.randint(0, max_index)
+        for i in range(seed.shape[0]):
+            seed = seed_y[i: i + 1]
+            frames = torch.flatten(frames_z[i:i + 1], 0, 1)
 
-        decomp = ternary_decomp(index)
+            index = max(1, np.random.randint(0, frames.shape[1]))
 
-        running = -1
-        seed = torch.repeat_interleave(seed, frames.shape[0] // seed.shape[0], dim=0)
-        error = model.base(seed)
+            decomp = ternary_decomp(index)
 
-        for delta in decomp:
-            running += delta
-            error = model.trans[delta](error)
-            res = torch.normal(0, 1, size=frames.shape).to(device)
+            running = -1
+            seed = torch.repeat_interleave(seed, frames.shape[0] // seed.shape[0], dim=0)
+            error = model.base(seed)
+
+            for i, delta in enumerate(decomp):
+                running += delta
+                error = model.trans[delta](error)
+
+            res = torch.normal(0, 1, size=(error.shape[0], 8, 63, 63)).to(device)
             full_vector = torch.cat((res, error), dim=1)
             overall = model.clipping(full_vector)
+
             post_clip_loss = rmse_lsa_unary_frame(overall, frames[:, running], O_MAX_ENSEMBLE_COUNT)
-            e_loss += post_clip_loss / len(decomp)
+            e_loss += post_clip_loss
+            train_emse.append(post_clip_loss.item())
 
         e_loss.backward()
         optimizer.step()
@@ -196,9 +202,9 @@ def test_epoch(test_loader, model, loss_function, e_loss_fun):
 
             ims = np.array(ims).transpose((1, 0, 2, 3, 4))
             preds.append(ims)
-            trues.append(yy.cpu().data.numpy())            
-            valid_mse.append(loss.item()/yy.shape[1])
-            valid_emse.append(e_loss.item()/yy.shape[1])
+            trues.append(yy.cpu().data.numpy())
+            valid_mse.append(loss.item() / yy.shape[1])
+            valid_emse.append(e_loss.item() / yy.shape[1])
 
         preds = np.catenate(preds, axis=0)
         trues = np.catenate(trues, axis=0)

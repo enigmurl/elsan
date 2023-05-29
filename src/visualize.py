@@ -53,13 +53,12 @@ render_count = 0
 class VisualizeSigma(Scene):
 
     def load_rand(self):
-        index = np.random.randint(0, DATA_VALIDATION_ENSEMBLES)
+        index = np.random.randint(0, DATA_VALIDATION_ENSEMBLES + 3)
 
         data = torch.load('../data/validate/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
         frames = torch.load('../data/validate/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
-        print(frames.shape)
-        return torch.flatten(data, 0, 1), \
-               torch.flatten(frames.view(frames.shape[0], -1, 2, frames.shape[2], frames.shape[3]), 1, 2)
+        return data, \
+               torch.flatten(frames, 1, 2)
 
     def model(self):
         model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
@@ -78,10 +77,10 @@ class VisualizeSigma(Scene):
         seed, frames = self.load_rand()
         seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(16)], dim=0)
         model = self.model()  # .eval()
-        base = model.base
-        trans = model.transition
-        query = model.query
-        clipping = model.clipping
+        # base = model.base
+        # trans = model.transition
+        # query = model.query
+        # clipping = model.clipping
 
         root = VGroup()
 
@@ -103,15 +102,15 @@ class VisualizeSigma(Scene):
         t = 0
         fnum = 0
         xx = seed
-        error = base(xx)
+        # error = base(xx)
 
-        # if render_count == 1:
-            # full = None
-        # else:
-        #     full = model(xx, 32)
+        if render_count == 1:
+            full = None
+        else:
+            full = model(xx, 64)
 
         def update(m, dt):
-            nonlocal t, fnum, xx, error
+            nonlocal t, fnum, xx # , error
             if render_count == 1:
                 return
             t += dt
@@ -119,16 +118,16 @@ class VisualizeSigma(Scene):
             fnum = int(t / FRAME_DT)
             mod = min(2 * fnum, frames.shape[1] - 2)
 
-            if mod // 2 > prev:
-                error = trans(error)
+            # if mod // 2 > prev:
+                # error = trans(error)
 
             d = np.random.randint(0, len(frames))
             # samp = ran_sample(query, error, frames[:, mod: mod + 2])
-            samp = torch.normal(0, 1, (xx.shape[0], 2, 63, 63)).to(device)
-            samp = torch.cat([samp, error], dim=-3)
-            samp0 = clipping(samp)
-            samp = samp0
-            # samp = full[:, mod: mod + 2]
+            # samp = torch.normal(0, 1, (xx.shape[0], 2, 63, 63)).to(device)
+            # samp = torch.cat([samp, error], dim=-3)
+            # samp0 = clipping(samp)
+            # samp = samp0
+            samp = full[:, mod: mod + 2]
             print(torch.sqrt(torch.mean(torch.square(samp - frames[0, mod: mod + 2]))))
 
             tx = frames[d, mod].cpu().data.numpy()
@@ -147,4 +146,4 @@ class VisualizeSigma(Scene):
 
         root.add_updater(update)
         self.add(root)
-        self.wait((frames.shape[1] + 3) / 2 * FRAME_DT)
+        self.wait((frames.shape[1]) / 2 * FRAME_DT)

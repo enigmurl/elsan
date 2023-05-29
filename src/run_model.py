@@ -21,17 +21,16 @@ if __name__ == '__main__':
                      time_range=O_TIME_RANGE
                      ).to(device)
 
-    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):
-        state = torch.load('model.pt')
-        model.load_state_dict(state)
-        # write_parameters_into_model(model, 'model_state.pt')
-
-    base = model.base
-    trans = model.transition
-    query = model.query
-    clipping = model.clipping
     org_model = model
     model = nn.DataParallel(model)
+
+    if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):
+        # state = torch.load('model.pt')
+        # model.load_state_dict(state)
+        write_parameters_into_model(model, 'model_state.pt')
+        model = model.to(device)
+
+
 
     train_set = EnsembleDataset(O_TRAIN_INDICES, O_RUN_SIZE, O_TRAIN_DIREC, O_INPUT_LENGTH)
     base_set = ClusteredDataset(list(range(0, 32)), '../data/base/', O_INPUT_LENGTH)
