@@ -446,7 +446,7 @@ class ELSAN(nn.Module):
                 for j in range(seed_indices.shape[0]):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     # shape: [ensemble_total_size, 2 (x,y), 63 (u), 63 (v)]
-                    y_pred = self.run(frame_seeds[j], jump_count[j], noise[j])
+                    y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j])
                     y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     for k in range(self.ensemble_total_size):
                         # fix row, and vary by column
@@ -466,7 +466,7 @@ class ELSAN(nn.Module):
                 cols = lsa_col_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
                 for j, (r, c) in enumerate(zip(rows, cols)):
-                    y_pred = self.run(frame_seeds[j], jump_count[j], noise[j][r])
+                    y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
