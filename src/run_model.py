@@ -22,7 +22,7 @@ if __name__ == '__main__':
     #                  time_range=O_TIME_RANGE
     #                  ).to(device)
 
-    model = ELSAN()
+    model = ELSAN().to(device)
     org_model = model
 
     if len(sys.argv) > 1 and (sys.argv[1] == 'clipping' or sys.argv[1] == 'recover'):

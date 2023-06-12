@@ -357,6 +357,7 @@ def load_frame(index, ensemble_nums, fnum):
 
 def index_decomp(num, base):
     decomp = []
+    num = int(num)
     while num > 0:
         decomp.append(num % base)
         num //= base
@@ -401,12 +402,17 @@ class ELSAN(nn.Module):
 
         self.clipping = ClippingLayer(noise_dim, pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
-        trans_required = int(np.ceil(np.log(max_out_frame) / np.log(base)))
+        trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
         self.trans = nn.ModuleList([TransitionPruner(pruning_size,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-    def run(self, seed, t, noise):
+    def run_full(self, seed, t, noise):
+        # uses duplicate noise
+        res = [self.run_single(seed, i + 1, noise).to(device) for i in range(t)]
+        return torch.cat(res, dim=1)
+
+    def run_single(self, seed, t, noise):
         decomp = index_decomp(t, self.k)
         running = -1
         error = self.base(torch.unsqueeze(seed, dim=0))
@@ -427,19 +433,21 @@ class ELSAN(nn.Module):
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
             frame_seeds = load_seed(seed_indices)
-            jump_count = torch.randint(max_out_frame if max_out_frame else self.max_out_frame, seed_indices.shape)
+            jump_count = 1 + torch.randint(max_out_frame if max_out_frame else self.max_out_frame, seed_indices.shape)
 
             noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
                 .to(device)
-            lsa_row_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size)).to(device)
-            lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size)).to(device)
+            lsa_row_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
+                .to(device)
+            lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
+                .to(device)
 
             with torch.no_grad():
                 for j in range(seed_indices.shape[0]):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     # shape: [ensemble_total_size, 2 (x,y), 63 (u), 63 (v)]
                     y_pred = self.run(frame_seeds[j], jump_count[j], noise[j])
-                    y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j])
+                    y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     for k in range(self.ensemble_total_size):
                         # fix row, and vary by column
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
@@ -450,19 +458,22 @@ class ELSAN(nn.Module):
 
             # using indices, actually do grad work through multiple sub-batches
             # space wise more efficient than naive method, but computationally 2x redundant
+            # note that it may be the case that after a gradient update, the bipartite
+            # matching is no longer optimal, but this is a small effect and should not
+            # affect the overall training
             for i in range(self.ensemble_total_size // self.ensembles_per_batch):
                 rows = lsa_row_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols = lsa_col_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
                 for j, (r, c) in enumerate(zip(rows, cols)):
                     y_pred = self.run(frame_seeds[j], jump_count[j], noise[j][r])
-                    y_true = load_frame(seed_indices[j], c, jump_count[j])  # [ensembles_per_batch, 2, 63, 63]
+                    y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
                 stat_loss_curve.append(loss.item())
 
                 optimizer.zero_grad()
-                loss.backwards()
+                loss.backward()
                 optimizer.step()
 
         return stat_loss_curve

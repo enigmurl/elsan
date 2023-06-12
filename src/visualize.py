@@ -54,19 +54,14 @@ class VisualizeSigma(Scene):
 
     def load_rand(self):
         index = np.random.randint(0, DATA_VALIDATION_ENSEMBLES + 3)
+        index = 0
 
-        data = torch.load('../data/validate/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
-        frames = torch.load('../data/validate/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
-        return data, \
-               torch.flatten(frames, 1, 2)
+        data = torch.load('../data/ensemble/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
+        frames = torch.load('../data/ensemble/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
+        return data, torch.flatten(frames, 1, 2)
 
     def model(self):
-        model = Orthonet(input_channels=O_INPUT_LENGTH * 2,
-                         pruning_size=O_PRUNING_SIZE,
-                         kernel_size=O_KERNEL_SIZE,
-                         dropout_rate=O_DROPOUT_RATE,
-                         time_range=O_TIME_RANGE
-                         ).to(device)
+        model = ELSAN().to(device)
         write_parameters_into_model(model, 'model_state.pt')
         return model.to(device)
 
@@ -75,7 +70,6 @@ class VisualizeSigma(Scene):
         render_count += 1
 
         seed, frames = self.load_rand()
-        seed = torch.cat([torch.unsqueeze(seed, 0) for _ in range(16)], dim=0)
         model = self.model()  # .eval()
         # base = model.base
         # trans = model.transition
@@ -107,7 +101,7 @@ class VisualizeSigma(Scene):
         if render_count == 1:
             full = None
         else:
-            full = model(xx, 64)
+            full = model.run_full(xx, 64, torch.normal(0, 1, (16, 8, 63, 63)).to(device))
 
         def update(m, dt):
             nonlocal t, fnum, xx # , error
@@ -128,6 +122,7 @@ class VisualizeSigma(Scene):
             # samp0 = clipping(samp)
             # samp = samp0
             samp = full[:, mod: mod + 2]
+            print(full.shape, frames.shape, mod)
             print(torch.sqrt(torch.mean(torch.square(samp - frames[0, mod: mod + 2]))))
 
             tx = frames[d, mod].cpu().data.numpy()
