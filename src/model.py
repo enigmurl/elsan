@@ -355,25 +355,33 @@ def load_frame(index, ensemble_nums, fnum):
         [ensemble_nums, fnum].float().to(device).detach()
 
 
-def index_decomp(num, base):
+def index_decomp(num, base, fracture_rate=0.25):
     decomp = []
     num = int(num)
     while num > 0:
         decomp.append(num % base)
         num //= base
 
-    ret = []
+    tmp = []
     for i in range(len(decomp)):
-        ret += [i] * decomp[i]
+        tmp += [i] * decomp[i]
+    
+    ret = []
+    for x in tmp:
+        if x > 0 and np.random.random() < fracture_rate:
+            ret += [x - 1] * base
+        else:
+            ret.append(x)
 
-    return ret[::-1]
+    np.random.shuffle(ret)
+    return ret
 
 
 class ELSAN(nn.Module):
     def __init__(self,
                  input_channels=16 * 2,
                  pruning_size=16,
-                 noise_dim=8,
+                 noise_dim=4,
                  dropout_rate=0,
                  base=3,
                  seeds_in_batch=32,
@@ -431,9 +439,11 @@ class ELSAN(nn.Module):
         permutation = torch.randperm(max_seed_index)
 
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
+            print("Mini index", mini_index)
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
             frame_seeds = load_seed(seed_indices)
-            jump_count = 1 + torch.randint(max_out_frame if max_out_frame else self.max_out_frame, seed_indices.shape)
+            real_max_index = min(self.max_out_frame, max_out_frame) if max_out_frame else self.max_out_frame
+            jump_count = 1 + torch.randint(real_max_index, seed_indices.shape)
 
             noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
                 .to(device)
@@ -449,7 +459,6 @@ class ELSAN(nn.Module):
                     y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j])
                     y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     for k in range(self.ensemble_total_size):
-                        # fix row, and vary by column
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
 
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
@@ -468,7 +477,7 @@ class ELSAN(nn.Module):
                 for j, (r, c) in enumerate(zip(rows, cols)):
                     y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
-                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
+                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0] * (real_max_index - (jump_count[j] - 1)  + real_max_index) / (real_max_index + real_max_index)
 
                 stat_loss_curve.append(loss.item())
 

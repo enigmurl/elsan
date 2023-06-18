@@ -121,7 +121,8 @@ if __name__ == '__main__':
     else:
         print("Training orthonet")
 
-        for i in range(O_MAX_EPOCH):
+        start = 0 if len(sys.argv) < 3 else int(sys.argv[2])
+        for i in range(start, O_MAX_EPOCH):
             print("Epoch", i)
 
             start = time.time()
@@ -135,7 +136,7 @@ if __name__ == '__main__':
             # im = model(xx)
             # ran_sample(model, im, prev_error,
             #            frames[:, 60:62])
-            lc = model.train_epoch(128, optimizer)
+            lc = model.train_epoch(128, optimizer, max_out_frame=i // 2 + 1)
             train_emse.append(np.mean(lc))
             #
             # model.eval()
