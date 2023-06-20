@@ -356,6 +356,11 @@ def load_frame(index, ensemble_nums, fnum):
 
 
 def index_decomp(num, base, fracture_rate=0.25):
+    num = int(num)
+    decomp = [1] * (num // base) + [0] * (num % base)
+    np.random.shuffle(decomp)
+    return decomp
+    """
     decomp = []
     num = int(num)
     while num > 0:
@@ -375,6 +380,7 @@ def index_decomp(num, base, fracture_rate=0.25):
 
     np.random.shuffle(ret)
     return ret
+    """
 
 
 class ELSAN(nn.Module):
@@ -383,7 +389,7 @@ class ELSAN(nn.Module):
                  pruning_size=16,
                  noise_dim=4,
                  dropout_rate=0,
-                 base=3,
+                 base=8,
                  seeds_in_batch=32,
                  ensembles_per_batch=4,  # must divide ensemble_total_size
                  ensemble_total_size=128,
@@ -410,7 +416,8 @@ class ELSAN(nn.Module):
 
         self.clipping = ClippingLayer(noise_dim, pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
-        trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
+        # trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
+        trans_required = 2
         self.trans = nn.ModuleList([TransitionPruner(pruning_size,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])

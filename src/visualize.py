@@ -101,7 +101,7 @@ class VisualizeSigma(Scene):
         if render_count == 1:
             full = None
         else:
-            full = model.run_full(xx, 64, torch.normal(0, 1, (16, 8, 63, 63)).to(device))
+            full = model.run_full(xx, 32, torch.normal(0, 1, (16, 4, 63, 63)).to(device))
 
         def update(m, dt):
             nonlocal t, fnum, xx # , error
@@ -110,7 +110,7 @@ class VisualizeSigma(Scene):
             t += dt
             prev = fnum
             fnum = int(t / FRAME_DT)
-            mod = min(2 * fnum, frames.shape[1] - 2)
+            mod = min(2 * fnum, full.shape[1] - 2)
 
             # if mod // 2 > prev:
                 # error = trans(error)
@@ -141,4 +141,4 @@ class VisualizeSigma(Scene):
 
         root.add_updater(update)
         self.add(root)
-        self.wait((frames.shape[1]) / 2 * FRAME_DT)
+        self.wait((64) / 2 * FRAME_DT)
