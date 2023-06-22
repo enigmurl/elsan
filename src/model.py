@@ -415,6 +415,7 @@ class ELSAN(nn.Module):
         self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
         self.clipping = ClippingLayer(noise_dim, pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
+        self.second_clipping = ClippingLayer(noise_dim, pruning_size + 2, dropout_rate=dropout_rate, kernel=kernel_size)
 
         # trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
         trans_required = 2
@@ -422,12 +423,12 @@ class ELSAN(nn.Module):
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-    def run_full(self, seed, t, noise):
+    def run_full(self, seed, t, noise, apply_second=False):
         # uses duplicate noise
-        res = [self.run_single(seed, i + 1, noise).to(device) for i in range(t)]
+        res = [self.run_single(seed, i + 1, noise, apply_second=apply_second)[0].to(device) for i in range(t)]
         return torch.cat(res, dim=1)
 
-    def run_single(self, seed, t, noise):
+    def run_single(self, seed, t, noise, apply_second=False):
         decomp = index_decomp(t, self.k)
         running = -1
         error = self.base(torch.unsqueeze(seed, dim=0))
@@ -437,7 +438,10 @@ class ELSAN(nn.Module):
 
         # sample error repeatedly
         error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
-        return self.clipping(torch.cat((noise, error), dim=1))
+        base = self.clipping(torch.cat((noise, error), dim=1))
+        if apply_second:
+            base = self.second_clipping(torch.cat((noise, error, base), dim=1))
+        return base, error
 
     # override for max_out_frame provided in case of warmup period
     def train_epoch(self, max_seed_index, optimizer, max_out_frame=None):
@@ -458,12 +462,18 @@ class ELSAN(nn.Module):
                 .to(device)
             lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
+            indices = torch.repeat_interleave(torch.randint(0, self.ensemble_total_size, (seed_indices.shape[0], 1)),
+                                              dim=1, repeats=self.ensemble_total_size).to(device)
+            lsa_row_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
+                .to(device)
+            lsa_col_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
+                .to(device)
 
             with torch.no_grad():
                 for j in range(seed_indices.shape[0]):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     # shape: [ensemble_total_size, 2 (x,y), 63 (u), 63 (v)]
-                    y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j])
+                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j])
                     y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
@@ -471,6 +481,17 @@ class ELSAN(nn.Module):
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
                     lsa_row_indices[j] = torch.tensor(rr).to(device)
                     lsa_col_indices[j] = torch.tensor(cc).to(device)
+
+                    # second clipping (y_true still the same)
+                    rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
+                    index = indices[j]
+                    y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
+                    for k in range(self.ensemble_total_size):
+                        rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
+
+                    rr, cc = linear_sum_assignment(rmse.cpu().numpy())
+                    lsa_row_indices2[j] = torch.tensor(rr).to(device)
+                    lsa_col_indices2[j] = torch.tensor(cc).to(device)
 
             # using indices, actually do grad work through multiple sub-batches
             # space wise more efficient than naive method, but computationally 2x redundant
@@ -482,10 +503,13 @@ class ELSAN(nn.Module):
                 cols = lsa_col_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
                 for j, (r, c) in enumerate(zip(rows, cols)):
-                    y_pred = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
-                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0] * (real_max_index - (jump_count[j] - 1)  + real_max_index) / (real_max_index + real_max_index)
 
+                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
+                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
+
+                    y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
+                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
 
                 optimizer.zero_grad()

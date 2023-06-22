@@ -98,10 +98,13 @@ class VisualizeSigma(Scene):
         xx = seed
         # error = base(xx)
 
+        TARG = 20
         if render_count == 1:
             full = None
         else:
-            full = model.run_full(xx, 32, torch.normal(0, 1, (16, 4, 63, 63)).to(device))
+            full = model.run_single(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device))
+            print(full.shape)
+            # full = model.run_full(xx, 32, torch.normal(0, 1, (16, 4, 63, 63)).to(device))
 
         def update(m, dt):
             nonlocal t, fnum, xx # , error
@@ -121,15 +124,19 @@ class VisualizeSigma(Scene):
             # samp = torch.cat([samp, error], dim=-3)
             # samp0 = clipping(samp)
             # samp = samp0
-            samp = full[:, mod: mod + 2]
-            print(full.shape, frames.shape, mod)
-            print(torch.sqrt(torch.mean(torch.square(samp - frames[0, mod: mod + 2]))))
+            # samp = full[:, mod: mod + 2]
+            samp = full[np.random.randint(0, len(full))]
+            # print(full.shape, frames.shape, mod)
 
-            tx = frames[d, mod].cpu().data.numpy()
-            ty = frames[d, mod + 1].cpu().data.numpy()
+            tx = frames[d, TARG * 2].cpu().data.numpy()
+            ty = frames[d, TARG * 2 + 1].cpu().data.numpy()
 
-            sx = samp[0, 0].data.numpy()
-            sy = samp[0, 1].data.numpy()
+            sx = samp[0].data.numpy()
+            sy = samp[1].data.numpy()
+
+            # print(torch.sqrt(torch.mean(torch.square(samp - frames[0, mod: mod + 2]))))
+
+
 
             xt_frame[0].become(frame("x true", tx, ORIGIN)).shift(0.8 * LEFT + 0.9 * UP)
             yt_frame[0].become(frame("y true", ty, ORIGIN)).shift(0.8 * RIGHT + 0.9 * UP)
