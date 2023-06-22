@@ -508,6 +508,7 @@ class ELSAN(nn.Module):
                     y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
+                    index = indices[j]
                     y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
