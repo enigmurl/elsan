@@ -102,7 +102,8 @@ class VisualizeSigma(Scene):
         if render_count == 1:
             full = None
         else:
-            full = model.run_single(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device))
+            # full, _ = model.run_single(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device), apply_second=True)
+            full, _ = model.run_single_true(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device), torch.repeat_interleave(frames[:1, TARG * 2 : TARG * 2 + 2], 32, dim=0), apply_second=True)
             print(full.shape)
             # full = model.run_full(xx, 32, torch.normal(0, 1, (16, 4, 63, 63)).to(device))
 

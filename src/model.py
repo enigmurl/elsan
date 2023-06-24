@@ -4,6 +4,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from hyperparameters import *
+from functools import lru_cache
 from util import get_device, mask_tensor, ternary_decomp
 
 device = get_device()
@@ -126,7 +127,7 @@ class Encoder(nn.Module):
 
 
 class ClippingLayer(nn.Module):
-    def __init__(self, noise, pruning, dropout_rate=0, kernel=O_KERNEL_SIZE):
+    def __init__(self, noise, pruning, samples, dropout_rate=0, kernel=O_KERNEL_SIZE):
         super(ClippingLayer, self).__init__()
         self.encoder = Encoder(noise + pruning, kernel, dropout_rate)
 
@@ -135,7 +136,7 @@ class ClippingLayer(nn.Module):
         self.deconv1 = deconv(128, 64)
         self.deconv0 = deconv(64, 32)
 
-        self.output_layer = nn.Conv2d(32 + noise + pruning, 2,
+        self.output_layer = nn.Conv2d(32 + noise + pruning, 2 * samples,
                                       kernel_size=3,
                                       padding=(kernel - 1) // 2)
 
@@ -345,11 +346,13 @@ class Orthonet(nn.Module):
         super(Orthonet, self).eval()
 
 
+@lru_cache(maxsize=16)
 def load_seed(indices):
     return torch.cat([torch.load('../data/ensemble/seed_' + str(int(i)) + '.pt').float().unsqueeze(0).to(device)
                       for i in indices]).detach()
 
 
+@lru_cache(maxsize=256)
 def load_frame(index, ensemble_nums, fnum):
     return torch.load('../data/ensemble/frames_' + str(int(index)) + '.pt') \
         [ensemble_nums, fnum].float().to(device).detach()
@@ -387,7 +390,7 @@ class ELSAN(nn.Module):
     def __init__(self,
                  input_channels=16 * 2,
                  pruning_size=16,
-                 noise_dim=4,
+                 noise_dim=0,
                  dropout_rate=0,
                  base=8,
                  seeds_in_batch=32,
@@ -414,8 +417,10 @@ class ELSAN(nn.Module):
 
         self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
 
-        self.clipping = ClippingLayer(noise_dim, pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
-        self.second_clipping = ClippingLayer(noise_dim, pruning_size + 2, dropout_rate=dropout_rate, kernel=kernel_size)
+        self.clipping = ClippingLayer(noise_dim, pruning_size, self.ensemble_total_size,
+                                      dropout_rate=dropout_rate, kernel=kernel_size)
+        self.second_clipping = ClippingLayer(noise_dim, pruning_size + 2, self.ensemble_total_size,
+                                             dropout_rate=dropout_rate, kernel=kernel_size)
 
         # trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
         trans_required = 2
@@ -423,12 +428,12 @@ class ELSAN(nn.Module):
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-    def run_full(self, seed, t, noise, apply_second=False):
+    def run_full(self, seed, t, apply_second=False):
         # uses duplicate noise
-        res = [self.run_single(seed, i + 1, noise, apply_second=apply_second)[0].to(device) for i in range(t)]
+        res = [self.run_single(seed, i + 1, apply_second=apply_second)[0].to(device) for i in range(t)]
         return torch.cat(res, dim=1)
 
-    def run_single(self, seed, t, noise, apply_second=False):
+    def run_single(self, seed, t, apply_second=False):
         decomp = index_decomp(t, self.k)
         running = -1
         error = self.base(torch.unsqueeze(seed, dim=0))
@@ -437,10 +442,10 @@ class ELSAN(nn.Module):
             error = self.trans[delta](error)
 
         # sample error repeatedly
-        error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
-        base = self.clipping(torch.cat((noise, error), dim=1))
+        # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
+        base = self.clipping(error)
         if apply_second:
-            base = self.second_clipping(torch.cat((noise, error, base), dim=1))
+            base = self.second_clipping(torch.cat((error, base), dim=1))
         return base, error
 
     # override for max_out_frame provided in case of warmup period
@@ -450,20 +455,18 @@ class ELSAN(nn.Module):
         permutation = torch.randperm(max_seed_index)
 
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
-            print("Mini index", mini_index)
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
             frame_seeds = load_seed(seed_indices)
             real_max_index = min(self.max_out_frame, max_out_frame) if max_out_frame else self.max_out_frame
             jump_count = 1 + torch.randint(real_max_index, seed_indices.shape)
 
-            noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
-                .to(device)
+            # noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
+            #     .to(device)
             lsa_row_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
             lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
-            indices = torch.repeat_interleave(torch.randint(0, self.ensemble_total_size, (seed_indices.shape[0], 1)),
-                                              dim=1, repeats=self.ensemble_total_size).to(device)
+            indices = torch.randint(0, self.ensemble_total_size, (seed_indices.shape[0], )).to(device)
             lsa_row_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
             lsa_col_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
@@ -473,7 +476,8 @@ class ELSAN(nn.Module):
                 for j in range(seed_indices.shape[0]):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     # shape: [ensemble_total_size, 2 (x,y), 63 (u), 63 (v)]
-                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j])
+                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j])
+                    y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)
                     y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
@@ -485,8 +489,8 @@ class ELSAN(nn.Module):
                     # second clipping (y_true still the same)
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     index = indices[j]
-                    y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
-                    print(torch.mean(torch.std(y_pred, dim=0)))
+                    y_pred = self.second_clipping(torch.cat((error, y_true[index].unsqueeze(0)), dim=1))
+                    y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
 
@@ -505,15 +509,17 @@ class ELSAN(nn.Module):
                 rows2 = lsa_row_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols2 = lsa_col_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
+
                 for j, (r, c, r2, c2) in enumerate(zip(rows, cols, rows2, cols2)):
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
-
-                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
+                    y_pred, error = self.run_single(frame_seeds[j], jump_count[j])
+                    y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)[r]
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
-                    y_seed = load_frame(seed_indices[j], indices[j][r2], jump_count[j] - 1)
+                    y_seed = load_frame(seed_indices[j], [indices[j]], jump_count[j] - 1)
                     y_true = load_frame(seed_indices[j], c2, jump_count[j] - 1)
-                    y_pred = self.second_clipping(torch.cat((noise[j][r2], error, y_seed), dim=1))
+                    y_pred = self.second_clipping(torch.cat((error, y_seed), dim=1))
+                    y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)[r2]
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
 
