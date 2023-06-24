@@ -486,6 +486,7 @@ class ELSAN(nn.Module):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
                     index = indices[j]
                     y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
+                    print(torch.mean(torch.std(y_pred, dim=0)))
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
 
@@ -501,15 +502,18 @@ class ELSAN(nn.Module):
             for i in range(self.ensemble_total_size // self.ensembles_per_batch):
                 rows = lsa_row_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols = lsa_col_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
+                rows2 = lsa_row_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
+                cols2 = lsa_col_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
-                for j, (r, c) in enumerate(zip(rows, cols)):
+                for j, (r, c, r2, c2) in enumerate(zip(rows, cols, rows2, cols2)):
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
 
                     y_pred, error = self.run_single(frame_seeds[j], jump_count[j], noise[j][r])
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
-                    index = indices[j]
-                    y_pred = self.second_clipping(torch.cat((noise[j], error, y_true[index]), dim=1))
+                    y_seed = load_frame(seed_indices[j], indices[j][r2], jump_count[j] - 1)
+                    y_true = load_frame(seed_indices[j], c2, jump_count[j] - 1)
+                    y_pred = self.second_clipping(torch.cat((noise[j][r2], error, y_seed), dim=1))
                     loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
 
