@@ -346,16 +346,18 @@ class Orthonet(nn.Module):
         super(Orthonet, self).eval()
 
 
-@lru_cache(maxsize=16)
 def load_seed(indices):
     return torch.cat([torch.load('../data/ensemble/seed_' + str(int(i)) + '.pt').float().unsqueeze(0).to(device)
                       for i in indices]).detach()
 
 
-@lru_cache(maxsize=256)
+@lru_cache(16)
+def _load_frame(index):
+    return torch.load('../data/ensemble/frames_' + str(int(index)) + '.pt').to(device).detach()
+
+
 def load_frame(index, ensemble_nums, fnum):
-    return torch.load('../data/ensemble/frames_' + str(int(index)) + '.pt') \
-        [ensemble_nums, fnum].float().to(device).detach()
+    return _load_frame(index)[ensemble_nums, fnum].float()
 
 
 def index_decomp(num, base, fracture_rate=0.25):
