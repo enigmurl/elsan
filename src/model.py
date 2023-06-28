@@ -447,7 +447,24 @@ class ELSAN(nn.Module):
         # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
         base = self.clipping(error)
         if apply_second:
-            base = self.second_clipping(torch.cat((error, base), dim=1))
+            base = base.view(-1, 2, 63, 63)
+            base = self.second_clipping(torch.cat((error, base[:1]), dim=1))
+        return base, error
+
+    def run_single_true(self, seed, t, true, apply_second=False):
+        decomp = index_decomp(t, self.k)
+        running = -1
+        error = self.base(torch.unsqueeze(seed, dim=0))
+        for delta in decomp:
+            running += self.k ** delta
+            error = self.trans[delta](error)
+
+        # sample error repeatedly
+        # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
+        base = self.clipping(error)
+        if apply_second:
+            base = base.view(-1, 2, 63, 63)
+            base = self.second_clipping(torch.cat((error, true[:1]), dim=1))
         return base, error
 
     # override for max_out_frame provided in case of warmup period
@@ -461,6 +478,7 @@ class ELSAN(nn.Module):
             frame_seeds = load_seed(seed_indices)
             real_max_index = min(self.max_out_frame, max_out_frame) if max_out_frame else self.max_out_frame
             jump_count = 1 + torch.randint(real_max_index, seed_indices.shape)
+            jump_count = 0 * jump_count + 30
 
             # noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
             #     .to(device)
@@ -516,13 +534,14 @@ class ELSAN(nn.Module):
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
                     y_pred, error = self.run_single(frame_seeds[j], jump_count[j])
                     y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)[r]
-                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
+                    # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
 
                     y_seed = load_frame(seed_indices[j], [indices[j]], jump_count[j] - 1)
                     y_true = load_frame(seed_indices[j], c2, jump_count[j] - 1)
                     y_pred = self.second_clipping(torch.cat((error, y_seed), dim=1))
                     y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)[r2]
-                    loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
+                    loss += (torch.sqrt(torch.mean(torch.square(y_pred - y_true))) +
+                             torch.mean(torch.abs(torch.std(y_pred) + torch.std(y_true)))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
 
                 optimizer.zero_grad()
