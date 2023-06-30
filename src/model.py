@@ -132,11 +132,11 @@ class ClippingLayer(nn.Module):
         self.encoder = Encoder(noise + pruning, kernel, dropout_rate)
 
         self.deconv3 = deconv(512, 256)
-        self.deconv2 = deconv(256, 128)
-        self.deconv1 = deconv(128, 64)
-        self.deconv0 = deconv(64, 32)
+        self.deconv2 = deconv(256, 256)
+        self.deconv1 = deconv(256, 128)
+        self.deconv0 = deconv(128, 128)
 
-        self.output_layer = nn.Conv2d(32 + noise + pruning, 2 * samples,
+        self.output_layer = nn.Conv2d(128 + noise + pruning, 2 * samples,
                                       kernel_size=3,
                                       padding=(kernel - 1) // 2)
 
@@ -145,8 +145,8 @@ class ClippingLayer(nn.Module):
 
         out_deconv3 = self.deconv3(out_conv4_mean)
         out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
-        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
-        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
+        out_deconv1 = self.deconv1(out_deconv2)
+        out_deconv0 = self.deconv0(out_deconv1)
 
         cat0 = torch.cat((xx, out_deconv0[:, :, :63, :63]), dim=-3)
 
@@ -395,8 +395,8 @@ class ELSAN(nn.Module):
                  noise_dim=0,
                  dropout_rate=0,
                  base=8,
-                 seeds_in_batch=32,
-                 ensembles_per_batch=4,  # must divide ensemble_total_size
+                 seeds_in_batch=4,
+                 ensembles_per_batch=32,  # must divide ensemble_total_size
                  ensemble_total_size=128,
                  max_out_frame=64,
                  kernel_size=3):
@@ -541,7 +541,7 @@ class ELSAN(nn.Module):
                     y_pred = self.second_clipping(torch.cat((error, y_seed), dim=1))
                     y_pred = y_pred.view(self.ensemble_total_size, 2, 63, 63)[r2]
                     loss += (torch.sqrt(torch.mean(torch.square(y_pred - y_true))) +
-                             torch.mean(torch.abs(torch.std(y_pred) + torch.std(y_true)))) / rows.shape[0]
+                            4 * torch.mean(torch.abs(torch.std(y_pred) - torch.std(y_true)))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
 
                 optimizer.zero_grad()
