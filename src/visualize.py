@@ -54,7 +54,7 @@ class VisualizeSigma(Scene):
 
     def load_rand(self):
         index = np.random.randint(0, DATA_VALIDATION_ENSEMBLES + 3)
-        index = 0
+        index = 1
 
         data = torch.load('../data/ensemble/seed_' + str(index) + '.pt', map_location="cpu").to(device).float()
         frames = torch.load('../data/ensemble/frames_' + str(index) + '.pt', map_location="cpu").to(device).float()
@@ -104,6 +104,7 @@ class VisualizeSigma(Scene):
         else:
             print(frames.shape)
             full, _ = model.run_single_true(xx, TARG, frames[:, 2*TARG: 2*TARG + 2], apply_second=True)
+            # full, _ = model.run_single(xx, TARG, apply_second=False)
             full = full.view(128, 2, 63, 63)
             # full, _ = model.run_single_true(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device), torch.repeat_interleave(frames[:1, TARG * 2 : TARG * 2 + 2], 32, dim=0), apply_second=True)
             print(full.shape)
