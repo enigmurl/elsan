@@ -127,7 +127,7 @@ class Encoder(nn.Module):
 
 
 class ClippingLayer(nn.Module):
-    def __init__(self, noise, pruning, dropout_rate=0, kernel=O_KERNEL_SIZE):
+    def __init__(self, noise, pruning, out_size=2, dropout_rate=0, kernel=O_KERNEL_SIZE):
         super(ClippingLayer, self).__init__()
         self.encoder = Encoder(noise + pruning, kernel, dropout_rate)
 
@@ -136,7 +136,7 @@ class ClippingLayer(nn.Module):
         self.deconv1 = deconv(256, 128)
         self.deconv0 = deconv(128, 128)
 
-        self.output_layer = nn.Conv2d(128 + noise + pruning, 2,
+        self.output_layer = nn.Conv2d(128 + noise + pruning, out_size,
                                       kernel_size=3,
                                       padding=(kernel - 1) // 2)
 
@@ -396,8 +396,8 @@ class ELSAN(nn.Module):
                  dropout_rate=0,
                  base=6,
                  seeds_in_batch=4,
-                 ensembles_per_batch=32,  # must divide ensemble_total_size
-                 ensemble_total_size=128,
+                 ensembles_per_batch=4,  # must divide ensemble_total_size
+                 ensemble_total_size=16,
                  max_out_frame=64,
                  kernel_size=3):
         super().__init__()
@@ -426,7 +426,8 @@ class ELSAN(nn.Module):
         self.clipping = ClippingLayer(noise_dim, pruning_size,
                                       dropout_rate=dropout_rate, kernel=kernel_size)
 
-        self.encoder = Encoder(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
+        self.encoder = ClippingLayer(0, 2,
+                                     out_size=self.pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
 
         # trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
         trans_required = 2
@@ -434,7 +435,7 @@ class ELSAN(nn.Module):
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-        self.trans_error = nn.ModuleList([TransitionPruner(pruning_size,
+        self.trans_error = nn.ModuleList([TransitionPruner(pruning_size * self.ensemble_total_size,
                                                            kernel=kernel_size,
                                                            dropout=dropout_rate) for _ in range(trans_required)])
 
@@ -456,7 +457,7 @@ class ELSAN(nn.Module):
 
         # sample error repeatedly
         # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
-        error_s = torch.repeat_interleave(error, self.ensemble_total_size, dim=0)
+        error_s = torch.repeat_interleave(error.float(), self.ensemble_total_size, dim=0)
         base = self.clipping(error_s)
         return base, error, error_e
 
@@ -503,6 +504,8 @@ class ELSAN(nn.Module):
             lsa_col_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
 
+
+
             with torch.no_grad():
                 for j in range(seed_indices.shape[0]):
                     rmse = torch.zeros((self.ensemble_total_size, self.ensemble_total_size))
@@ -512,13 +515,13 @@ class ELSAN(nn.Module):
                     res, pruning = self.auto_encode(y_true)
                     pruning = pruning.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     y_true_e = pruning - torch.mean(pruning, dim=0)
+                    error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((error_e[k] - y_true_e)), dim=(1, 2, 3)))
 
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
                     lsa_row_indices[j] = torch.tensor(rr).to(device)
                     lsa_col_indices[j] = torch.tensor(cc).to(device)
-
             # using indices, actually do grad work through multiple sub-batches
             # space wise more efficient than naive method, but computationally 2x redundant
             # note that it may be the case that after a gradient update, the bipartite
@@ -530,7 +533,6 @@ class ELSAN(nn.Module):
                 rows2 = lsa_row_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols2 = lsa_col_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 loss = 0
-
                 for j, (r, c, r2, c2) in enumerate(zip(rows, cols, rows2, cols2)):
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
                     y_pred, error, error_e = self.run_single(frame_seeds[j], jump_count[j])
@@ -542,15 +544,16 @@ class ELSAN(nn.Module):
                     # main loss
                     pruning_mean = torch.mean(pruning, dim=0)
                     loss += torch.sqrt(torch.mean(torch.square(pruning_mean - error))) / rows.shape[0]
-                    # error lossk
+                    # error loss
+                    error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
+                    error_e = error_e[r]
                     loss += torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) / rows.shape[0]
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
-
                 stat_loss_curve.append(loss.item())
-
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
 
         return stat_loss_curve
 
