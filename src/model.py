@@ -396,9 +396,9 @@ class ELSAN(nn.Module):
                  dropout_rate=0,
                  base=6,
                  seeds_in_batch=4,
-                 ensembles_per_batch=4,  # must divide ensemble_total_size
-                 ensemble_total_size=16,
-                 max_out_frame=64,
+                 ensembles_per_batch=16,  # must divide ensemble_total_size
+                 ensemble_total_size=128,
+                 max_out_frame=31,
                  kernel_size=3):
         super().__init__()
 
@@ -418,13 +418,16 @@ class ELSAN(nn.Module):
                                dropout_rate=dropout_rate,
                                time_range=1)  # time range not used
 
-        self.base_error = BasePruner(input_channels, pruning_size * self.ensemble_total_size,
+        self.base_error = BasePruner(input_channels, pruning_size,
                                      kernel_size=kernel_size,
                                      dropout_rate=dropout_rate,
                                      time_range=1)  # time range not used
 
         self.clipping = ClippingLayer(noise_dim, pruning_size,
                                       dropout_rate=dropout_rate, kernel=kernel_size)
+
+        self.clipping_error = ClippingLayer(noise_dim, pruning_size, out_size=pruning_size*self.ensemble_total_size,
+                                        dropout_rate=dropout_rate, kernel=kernel_size)
 
         self.encoder = ClippingLayer(0, 2,
                                      out_size=self.pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
@@ -435,7 +438,7 @@ class ELSAN(nn.Module):
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-        self.trans_error = nn.ModuleList([TransitionPruner(pruning_size * self.ensemble_total_size,
+        self.trans_error = nn.ModuleList([TransitionPruner(pruning_size,
                                                            kernel=kernel_size,
                                                            dropout=dropout_rate) for _ in range(trans_required)])
 
@@ -459,7 +462,7 @@ class ELSAN(nn.Module):
         # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
         error_s = torch.repeat_interleave(error.float(), self.ensemble_total_size, dim=0)
         base = self.clipping(error_s)
-        return base, error, error_e
+        return base, error, self.clipping_error(error_e)
 
     def run_single_true(self, seed, t, true, apply_second=False):
         decomp = index_decomp(t, self.k)
@@ -490,7 +493,6 @@ class ELSAN(nn.Module):
             frame_seeds = load_seed(seed_indices)
             real_max_index = min(self.max_out_frame, max_out_frame) if max_out_frame else self.max_out_frame
             jump_count = 1 + torch.randint(real_max_index, seed_indices.shape)
-            jump_count = 0 * jump_count + 30
 
             # noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
             #     .to(device)
@@ -503,7 +505,6 @@ class ELSAN(nn.Module):
                 .to(device)
             lsa_col_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
-
 
 
             with torch.no_grad():
@@ -522,6 +523,13 @@ class ELSAN(nn.Module):
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
                     lsa_row_indices[j] = torch.tensor(rr).to(device)
                     lsa_col_indices[j] = torch.tensor(cc).to(device)
+                    
+                    for k in range(self.ensemble_total_size):
+                        rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
+
+                    rr, cc = linear_sum_assignment(rmse.cpu().numpy())
+                    lsa_row_indices2[j] = torch.tensor(rr).to(device)
+                    lsa_col_indices2[j] = torch.tensor(cc).to(device)
             # using indices, actually do grad work through multiple sub-batches
             # space wise more efficient than naive method, but computationally 2x redundant
             # note that it may be the case that after a gradient update, the bipartite
@@ -540,14 +548,22 @@ class ELSAN(nn.Module):
                     # auto_encoder_loss
                     res, pruning = self.auto_encode(y_true)
                     loss += torch.sqrt(torch.mean(torch.square(y_true - res))) / rows.shape[0]
+                    print("First", torch.sqrt(torch.mean(torch.square(y_true - res))))
 
                     # main loss
                     pruning_mean = torch.mean(pruning, dim=0)
-                    loss += torch.sqrt(torch.mean(torch.square(pruning_mean - error))) / rows.shape[0]
+                    loss += torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2 / rows.shape[0]
+                    print("Second", torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2)
                     # error loss
                     error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     error_e = error_e[r]
-                    loss += torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) / rows.shape[0]
+                    loss += (torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3  + torch.mean(torch.abs(error_e))) / rows.shape[0]
+                    loss += torch.mean(torch.abs(torch.abs(pruning) - 1))
+                    print("Fourth", torch.mean(torch.abs(torch.abs(pruning) - 1)))
+                    # print("Average Error", torch.mean(torch.abs(pruning - pruning_mean)), torch.mean(torch.abs(error_e)))
+                    print("Third", torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3)
+                    # loss += torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0]
+                    #print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss.item())
                 optimizer.zero_grad()

@@ -122,6 +122,7 @@ if __name__ == '__main__':
         print("Training orthonet")
 
         start = 0 if len(sys.argv) < 3 else int(sys.argv[2])
+        best = 1e6
         for i in range(start, O_MAX_EPOCH):
             print("Epoch", i)
 
@@ -144,9 +145,11 @@ if __name__ == '__main__':
             # valid_emse.append(emse)
             # valid_emse = [min_mse * 0.5]
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
-
-            torch.save(model.state_dict(), "model.pt")
-            save_parameters_from_model(model, 'model_state.pt')
+            
+            if np.mean(lc) < best:
+                torch.save(model.state_dict(), "model.pt")
+                save_parameters_from_model(model, 'model_state.pt')
+                best = np.mean(lc)
             #
             # if valid_emse[-1] < min_mse:
             #     min_mse = valid_emse[-1]
