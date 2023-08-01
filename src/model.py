@@ -458,11 +458,10 @@ class ELSAN(nn.Module):
             error = self.trans[delta](error)
             error_e = self.trans_error[delta](error_e)
 
-        # sample error repeatedly
-        # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
         error_s = torch.repeat_interleave(error.float(), self.ensemble_total_size, dim=0)
-        base = self.clipping(error_s)
-        return base, error, self.clipping_error(error_e)
+        clipping_error = self.clipping_error(error_e).view(self.ensemble_total_size, self.pruning_size, 63, 63)
+        base = self.clipping(error_s + clipping_error)
+        return base, error, clipping_error
 
     def run_single_true(self, seed, t, true, apply_second=False):
         decomp = index_decomp(t, self.k)
@@ -481,12 +480,27 @@ class ELSAN(nn.Module):
         pruning = self.encoder(y_true)
         return self.clipping(pruning), pruning
 
+    def parameters1(self):
+        for name, parameter in self.named_parameters():
+            if name.startswith("encoder.") or name.startswith("clipping."):
+                yield parameter
+
+    def parameters2(self):
+        for name, parameter in self.named_parameters():
+            if name.startswith("base.") or name.startswith("trans."):
+                yield parameter
+    
+    def parameters3(self):
+        for name, parameter in self.named_parameters():
+            if name.startswith("base_error.") or name.startswith("trans_error.") or name.startswith("clipping_error."):
+                yield parameter
 
     # override for max_out_frame provided in case of warmup period
-    def train_epoch(self, max_seed_index, optimizer, max_out_frame=None):
+    def train_epoch(self, max_seed_index, optimizers, max_out_frame=None):
         stat_loss_curve = []
 
         permutation = torch.randperm(max_seed_index)
+        step = 0
 
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
@@ -536,39 +550,39 @@ class ELSAN(nn.Module):
             # matching is no longer optimal, but this is a small effect and should not
             # affect the overall training
             for i in range(self.ensemble_total_size // self.ensembles_per_batch):
+                step += 1
                 rows = lsa_row_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols = lsa_col_indices[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 rows2 = lsa_row_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
                 cols2 = lsa_col_indices2[:, i * self.ensembles_per_batch: (i + 1) * self.ensembles_per_batch]
-                loss = 0
+                loss = [0, 0, 0]
                 for j, (r, c, r2, c2) in enumerate(zip(rows, cols, rows2, cols2)):
                     y_true = load_frame(seed_indices[j], c, jump_count[j] - 1)  # [ensembles_per_batch, 2, 63, 63]
                     y_pred, error, error_e = self.run_single(frame_seeds[j], jump_count[j])
 
                     # auto_encoder_loss
                     res, pruning = self.auto_encode(y_true)
-                    loss += torch.sqrt(torch.mean(torch.square(y_true - res))) / rows.shape[0]
-                    print("First", torch.sqrt(torch.mean(torch.square(y_true - res))))
-
+                    loss[0] += 10 * torch.mean(torch.abs(y_true - res)) / rows.shape[0]
                     # main loss
                     pruning_mean = torch.mean(pruning, dim=0)
-                    loss += torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2 / rows.shape[0]
-                    print("Second", torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2)
+                    # print("Second", torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2)
                     # error loss
                     error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     error_e = error_e[r]
-                    loss += (torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3  + torch.mean(torch.abs(error_e))) / rows.shape[0]
-                    loss += torch.mean(torch.abs(torch.abs(pruning) - 1))
-                    print("Fourth", torch.mean(torch.abs(torch.abs(pruning) - 1)))
+                    loss[1] += torch.mean(torch.abs(pruning_mean - error)) * 10 / rows.shape[0]
+                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 + 5 * torch.abs(torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e))) ) / rows.shape[0]
+                    # loss += (torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3  + torch.mean(torch.abs(error_e))) / rows.shape[0]
+                    # loss += torch.mean(torch.abs(torch.abs(pruning) - 1))
+                    # print("Fourth", torch.mean(torch.abs(torch.abs(pruning) - 1)))
                     # print("Average Error", torch.mean(torch.abs(pruning - pruning_mean)), torch.mean(torch.abs(error_e)))
-                    print("Third", torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3)
+                    # print("Third", torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3)
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0]
                     #print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
-                stat_loss_curve.append(loss.item())
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                stat_loss_curve.append(loss[step % len(loss)].item())
+                optimizers[step % len(optimizers)].zero_grad()
+                loss[step % len(loss)].backward()
+                optimizers[step % len(optimizers)].step()
 
 
         return stat_loss_curve
@@ -579,6 +593,6 @@ class CGAN(nn.Module):
         super().__init__()
 
 
-class MISELBO(nn.Module):
+class ScoreMatching(nn.Module):
     def __init__(self):
         super().__init__()

@@ -47,8 +47,10 @@ if __name__ == '__main__':
     base_error = BaseErrorLoss()
     regularizer = DivergenceLoss(torch.nn.MSELoss())
 
-    optimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
+    optimizer1 = torch.optim.Adam(model.parameters1(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer2 = torch.optim.Adam(model.parameters2(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer3 = torch.optim.Adam(model.parameters3(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
     train_emse = []
     valid_emse = []
@@ -137,7 +139,7 @@ if __name__ == '__main__':
             # im = model(xx)
             # ran_sample(model, im, prev_error,
             #            frames[:, 60:62])
-            lc = model.train_epoch(128, optimizer, max_out_frame=i // 2 + 1)
+            lc = model.train_epoch(128, [optimizer1, optimizer2, optimizer3], max_out_frame=i // 2 + 1)
             train_emse.append(np.mean(lc))
             #
             # model.eval()
@@ -146,7 +148,7 @@ if __name__ == '__main__':
             # valid_emse = [min_mse * 0.5]
             # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
             
-            if np.mean(lc) < best:
+            if np.mean(lc) < best or True:
                 torch.save(model.state_dict(), "model.pt")
                 save_parameters_from_model(model, 'model_state.pt')
                 best = np.mean(lc)
