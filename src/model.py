@@ -238,114 +238,6 @@ class TransitionPruner(nn.Module):
         return self.output_layer(cat0)
 
 
-class OrthoQuerier(nn.Module):
-    def __init__(self, pruning_vector, kernel_size=3, dropout_rate=0):
-        super(OrthoQuerier, self).__init__()
-
-        in_channels = 4 + pruning_vector
-
-        self.encoder = Encoder(in_channels, kernel_size=kernel_size, dropout_rate=dropout_rate)
-
-        self.deconv3 = deconv(512, 256)
-        self.deconv2 = deconv(256, 128)
-        self.deconv1 = deconv(128, 64)
-        self.deconv0 = deconv(64, 32)
-
-        self.output_layer = nn.Conv2d(32 + in_channels, 2 * len(CON_LIST), kernel_size=kernel_size,
-                                      padding=(kernel_size - 1) // 2)
-
-    def forward(self, pruning, query):
-        # takes in a query and pruning, and outputs the necessary nodes everywhere
-        u = torch.cat((pruning, query), dim=-3)
-        # u = query
-        out_conv1_mean, out_conv2_mean, out_conv3_mean, out_conv4_mean = self.encoder(u)
-
-        out_deconv3 = self.deconv3(out_conv4_mean)
-        out_deconv2 = self.deconv2(out_conv3_mean + out_deconv3)
-        out_deconv1 = self.deconv1(out_conv2_mean + out_deconv2)
-        out_deconv0 = self.deconv0(out_conv1_mean + out_deconv1)
-
-        cat0 = torch.cat((u, out_deconv0[:, :, :63, :63]), dim=-3)
-        out = self.output_layer(cat0)
-
-        return out
-
-
-class Orthonet(nn.Module):
-    def __init__(self, input_channels, pruning_size, kernel_size, dropout_rate, time_range):
-        super(Orthonet, self).__init__()
-
-        self.base = BasePruner(input_channels, pruning_size,
-                               kernel_size=kernel_size,
-                               dropout_rate=dropout_rate,
-                               time_range=time_range)
-
-        self.query = OrthoQuerier(pruning_size, kernel_size=kernel_size, dropout_rate=dropout_rate)
-
-        self.clipping = ClippingLayer(pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
-
-        self.transition_1 = TransitionPruner(pruning_size,
-                                             kernel=kernel_size,
-                                             dropout=dropout_rate)
-        self.transition_3 = TransitionPruner(pruning_size,
-                                             kernel=kernel_size,
-                                             dropout=dropout_rate)
-        self.transition_9 = TransitionPruner(pruning_size,
-                                             kernel=kernel_size,
-                                             dropout=dropout_rate)
-        self.transition_27 = TransitionPruner(pruning_size,
-                                              kernel=kernel_size,
-                                              dropout=dropout_rate)
-        self.trans = {
-            1: self.transition_1,
-            3: self.transition_3,
-            9: self.transition_9,
-            27: self.transition_27
-        }
-
-        # self.remove_batch_norm()
-
-    def frame(self, x, t):
-        decomp = ternary_decomp(t)
-        error = self.base(x)
-
-        for delta in decomp:
-            error = self.trans[delta](error)
-        res = torch.normal(0, 1, size=(x.shape[0], 8, 63, 63)).to(device)
-        full_vector = torch.cat((res, error), dim=1)
-        return self.clipping(full_vector)
-
-        raw = torch.stack(out)
-        raw = torch.transpose(raw, 0, 1)
-        raw = torch.flatten(raw, 1, 2)
-
-        return raw
-
-    def forward(self, x, t):
-        out = []
-        for i in range(t):
-            # out.append(self.frame(x, 48))
-            out.append(self.frame(x, i + 1))
-
-        raw = torch.stack(out)
-        raw = torch.transpose(raw, 0, 1)
-        raw = torch.flatten(raw, 1, 2)
-
-        return raw
-
-    def remove_batch_norm(self):
-        for m in self.modules():
-            for c in m.children():
-                if isinstance(c, nn.BatchNorm2d):
-                    c.track_running_stats = False
-                    c.affine = True
-
-        return self
-
-    def eval(self):
-        super(Orthonet, self).eval()
-
-
 def load_seed(indices):
     return torch.cat([torch.load('../data/ensemble/seed_' + str(int(i)) + '.pt').float().unsqueeze(0).to(device)
                       for i in indices]).detach()
@@ -388,7 +280,17 @@ def index_decomp(num, base, fracture_rate=0.25):
     """
 
 
-class ELSAN(nn.Module):
+class FluidFlowPredictor(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def run_full(self, seed, t):
+        # uses duplicate noise
+        res = [self.run_single(seed, i + 1)[0].to(device) for i in range(t)]
+        return torch.cat(res, dim=1)
+
+
+class ELSAN(FluidFlowPredictor):
     def __init__(self,
                  input_channels=16 * 2,
                  pruning_size=2,
@@ -426,8 +328,8 @@ class ELSAN(nn.Module):
         self.clipping = ClippingLayer(noise_dim, pruning_size,
                                       dropout_rate=dropout_rate, kernel=kernel_size)
 
-        self.clipping_error = ClippingLayer(noise_dim, pruning_size, out_size=pruning_size*self.ensemble_total_size,
-                                        dropout_rate=dropout_rate, kernel=kernel_size)
+        self.clipping_error = ClippingLayer(noise_dim, pruning_size, out_size=pruning_size * self.ensemble_total_size,
+                                            dropout_rate=dropout_rate, kernel=kernel_size)
 
         self.encoder = ClippingLayer(0, 2,
                                      out_size=self.pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
@@ -463,19 +365,6 @@ class ELSAN(nn.Module):
         base = self.clipping(error_s + clipping_error)
         return base, error, clipping_error
 
-    def run_single_true(self, seed, t, true, apply_second=False):
-        decomp = index_decomp(t, self.k)
-        running = -1
-        error = self.base(torch.unsqueeze(seed, dim=0))
-        for delta in decomp:
-            running += self.k ** delta
-            error = self.trans[delta](error)
-
-        # sample error repeatedly
-        # error = torch.repeat_interleave(error, repeats=len(noise), dim=0)
-        base = self.clipping(error)
-        return base, error
-
     def auto_encode(self, y_true):
         pruning = self.encoder(y_true)
         return self.clipping(pruning), pruning
@@ -489,7 +378,7 @@ class ELSAN(nn.Module):
         for name, parameter in self.named_parameters():
             if name.startswith("base.") or name.startswith("trans."):
                 yield parameter
-    
+
     def parameters3(self):
         for name, parameter in self.named_parameters():
             if name.startswith("base_error.") or name.startswith("trans_error.") or name.startswith("clipping_error."):
@@ -514,12 +403,11 @@ class ELSAN(nn.Module):
                 .to(device)
             lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
-            indices = torch.randint(0, self.ensemble_total_size, (seed_indices.shape[0], )).to(device)
+            indices = torch.randint(0, self.ensemble_total_size, (seed_indices.shape[0],)).to(device)
             lsa_row_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
             lsa_col_indices2 = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
-
 
             with torch.no_grad():
                 for j in range(seed_indices.shape[0]):
@@ -537,7 +425,7 @@ class ELSAN(nn.Module):
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
                     lsa_row_indices[j] = torch.tensor(rr).to(device)
                     lsa_col_indices[j] = torch.tensor(cc).to(device)
-                    
+
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((y_pred[k] - y_true)), dim=(1, 2, 3)))
 
@@ -570,27 +458,123 @@ class ELSAN(nn.Module):
                     error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     error_e = error_e[r]
                     loss[1] += torch.mean(torch.abs(pruning_mean - error)) * 10 / rows.shape[0]
-                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 + 5 * torch.abs(torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e))) ) / rows.shape[0]
+                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 + 5 * torch.abs(
+                        torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e)))) / rows.shape[0]
                     # loss += (torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3  + torch.mean(torch.abs(error_e))) / rows.shape[0]
                     # loss += torch.mean(torch.abs(torch.abs(pruning) - 1))
                     # print("Fourth", torch.mean(torch.abs(torch.abs(pruning) - 1)))
                     # print("Average Error", torch.mean(torch.abs(pruning - pruning_mean)), torch.mean(torch.abs(error_e)))
                     # print("Third", torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3)
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0]
-                    #print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
+                    # print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss[step % len(loss)].item())
                 optimizers[step % len(optimizers)].zero_grad()
                 loss[step % len(loss)].backward()
                 optimizers[step % len(optimizers)].step()
 
-
         return stat_loss_curve
 
 
-class CGAN(nn.Module):
-    def __init__(self):
+class CGAN(FluidFlowPredictor):
+    def __init__(self,
+                 seeds_in_batch=16,
+                 ensembles_per_batch=4,
+                 ensemble_total_size=128,
+                 max_out_frame=32,
+                 noise_dim=16,
+                 input_channels=16 * 2,
+                 pruning_size=1,
+                 kernel_size=3,
+                 dropout_rate=0):
         super().__init__()
+
+        self.seeds_in_batch = seeds_in_batch
+        self.ensembles_per_batch = ensembles_per_batch
+        self.ensemble_total_size=ensemble_total_size
+        self.max_out_frame = max_out_frame
+
+        self.base = BasePruner(input_channels, pruning_size,
+                               kernel_size=kernel_size,
+                               dropout_rate=dropout_rate,
+                               time_range=1)
+
+        self.generator = ClippingLayer(noise_dim, pruning_size,
+                                       dropout_rate=dropout_rate, kernel=kernel_size)
+
+        self.discriminator_base = Encoder(pruning_size + 2, kernel_size=kernel_size, dropout_rate=dropout_rate)
+        self.discriminator_1 = torch.nn.Linear(512 * 4 * 4, 512)
+        self.discriminator_2 = torch.nn.Linear(512, 128)
+        self.discriminator_3 = torch.nn.Linear(128, 16)
+        self.discriminator_4 = torch.nn.Linear(16, 1)
+
+        trans_required = 2
+        self.trans = nn.ModuleList([TransitionPruner(pruning_size,
+                                                     kernel=kernel_size,
+                                                     dropout=dropout_rate) for _ in range(trans_required)])
+
+    def single_pruning(self, seed, t):
+        decomp = index_decomp(t, self.k)
+        running = -1
+        seed = torch.unsqueeze(seed, dim=0)
+
+        error = self.base(seed)
+        for delta in decomp:
+            running += self.k ** delta
+            error = self.trans[delta](error)
+
+        return error
+
+    def run_single(self, seed, t):
+        # advanced pruning vector
+        pruning = self.single_pruning(seed, t)
+        noise = torch.normal(0, 1, size=(1, *self.noise_shape)).to(device)
+        return self.generator(torch.cat((noise, pruning), dim=-3)), pruning
+
+    def train_epoch(self, max_seed_index, optimizer, max_out_frame=None):
+        stat_loss_curve = []
+
+        permutation = torch.randperm(max_seed_index)
+        for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
+            seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
+            seeds = load_seed(seed_indices)
+
+            pruning_starts = []
+            preds = []
+            trues = []
+            for j in range(seed_indices.shape[0]):
+                jump = 1 + np.randint(0, np.min(self.max_out_frame, max_out_frame), (1,))
+                pruning_starts.append(self.single_pruning(seeds[j], jump))
+
+                noise = torch.normal(0, 1, size=(self.ensembles_per_batch, *self.noise_shape)).to(device)
+                preds.append(self.generator(torch.cat((noise, pruning_starts[-1]), dim=-3)))
+
+                indices = torch.randint(0, self.ensemble_total_size, (self.ensembles_per_batch,)).to(device)
+                trues.append(load_frame(seed_indices[j], indices, jump - 1))
+
+            preds = torch.cat(preds, dim=0)
+            trues = torch.cat(trues, dim=0)
+            pruning_starts = torch.repeat_interleave(torch.stack(pruning_starts + pruning_starts),
+                                                     self.ensembles_per_batch, dim=0)
+            disc_input = torch.cat((preds, trues), dim=0)
+            disc_input = torch.cat((disc_input, pruning_starts), dim=1)
+
+            disc = self.discriminator_base(disc_input)
+            disc = torch.nn.functional.relu(self.discriminator_1(disc.view(disc.shape[0], -1)))
+            disc = torch.nn.functional.relu(self.discriminator_2(disc))
+            disc = torch.nn.functional.relu(self.discriminator_3(disc))
+            disc = torch.nn.functional.sigmoid(self.discriminator_4(disc))
+
+            expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
+                                    + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
+                .to(device)
+            loss = torch.nn.functional.binary_cross_entropy(disc, expected)
+
+            # optimizer
+            stat_loss_curve.append(loss.item())
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
 
 class ScoreMatching(nn.Module):
