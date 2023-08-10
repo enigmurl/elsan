@@ -6,7 +6,7 @@ import time
 import sys
 
 from hyperparameters import *
-from model import Orthonet, ELSAN
+from model import ELSAN
 from penalty import DivergenceLoss, BigErrorLoss, BaseErrorLoss
 from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
     train_base_orthonet_epoch
@@ -56,114 +56,47 @@ if __name__ == '__main__':
     valid_emse = []
     test_emse = []
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'clipping':
-        print("Training clipping")
+    start = 0 if len(sys.argv) < 3 else int(sys.argv[2])
+    best = 1e6
+    for i in range(start, O_MAX_EPOCH):
+        print("Epoch", i)
 
-        for i in range(O_MAX_EPOCH):
-            print("Epoch", i)
-            start = time.time()
+        start = time.time()
 
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
-            model.train()
+        model.train()
+        # error = base(xx)
+        # ran_sample(query, error, frames[:, 12:14])
+        # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
+        # im = model(xx)
+        # ran_sample(model, im, prev_error,
+        #            frames[:, 60:62])
+        lc = model.train_epoch(128, [optimizer1, optimizer2, optimizer3], max_out_frame=i // 2 + 1)
+        train_emse.append(np.mean(lc))
+        #
+        # model.eval()
+        # emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
+        # valid_emse.append(emse)
+        # valid_emse = [min_mse * 0.5]
+        # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
 
-            # emse = train_clipping_epoch(clipping_loader, clipping, optimizer)
-
-            # train_emse.append(emse)
-
-            torch.save(model, "model.pt")
-            save_parameters_from_model(model, 'model_state.pt')
-            end = time.time()
-
-            print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
-    elif len(sys.argv) > 1 and sys.argv[1] == 'base':
-        print("Training orthonet")
-
-        for i in range(O_MAX_EPOCH):
-            print("Epoch", i)
-
-            start = time.time()
-
-            torch.cuda.empty_cache()
-
-            model.train()
-            # error = base(xx)
-            # ran_sample(query, error, frames[:, 12:14])
-            # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
-            # im = model(xx)
-            # ran_sample(model, im, prev_error,
-            #            frames[:, 60:62])
-            lc = model.train_epoch(128, optimizer)
-            train_emse.append(np.mean(lc))
-            #
-            # model.eval()
-            # emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
-            # valid_emse.append(emse)
-            # valid_emse = [min_mse * 0.5]
-            # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
-
+        if np.mean(lc) < best or True:
             torch.save(model.state_dict(), "model.pt")
             save_parameters_from_model(model, 'model_state.pt')
-            #
-            # if valid_emse[-1] < min_mse:
-            #     min_mse = valid_emse[-1]
-            #     best_model = model
-            #     # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
-            #     # preds, trues, loss_curve = test_epoch(test_loader, best_model, loss_fun, error_fun)
-            #     #
-            #     # torch.save({"preds": preds,
-            #     #             "trues": trues,
-            #     #             "loss_curve": loss_curve},
-            #     #            "results.pt")
+            best = np.mean(lc)
+        #
+        # if valid_emse[-1] < min_mse:
+        #     min_mse = valid_emse[-1]
+        #     best_model = model
+        #     # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
+        #     # preds, trues, loss_curve = test_epoch(test_loader, best_model, loss_fun, error_fun)
+        #     #
+        #     # torch.save({"preds": preds,
+        #     #             "trues": trues,
+        #     #             "loss_curve": loss_curve},
+        #     #            "results.pt")
 
-            end = time.time()
+        end = time.time()
 
-            print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
-
-    else:
-        print("Training orthonet")
-
-        start = 0 if len(sys.argv) < 3 else int(sys.argv[2])
-        best = 1e6
-        for i in range(start, O_MAX_EPOCH):
-            print("Epoch", i)
-
-            start = time.time()
-
-            torch.cuda.empty_cache()
-
-            model.train()
-            # error = base(xx)
-            # ran_sample(query, error, frames[:, 12:14])
-            # prev_error = torch.zeros((64, 8, frames.shape[-2], frames.shape[-1]), device=device)
-            # im = model(xx)
-            # ran_sample(model, im, prev_error,
-            #            frames[:, 60:62])
-            lc = model.train_epoch(128, [optimizer1, optimizer2, optimizer3], max_out_frame=i // 2 + 1)
-            train_emse.append(np.mean(lc))
-            #
-            # model.eval()
-            # emse = eval_epoch(valid_loader, base, trans, query, hammer, con_list, error_fun)
-            # valid_emse.append(emse)
-            # valid_emse = [min_mse * 0.5]
-            # test_set = Dataset(test_indices, input_length + time_range - 1, 40, 60, test_direc, True)
-            
-            if np.mean(lc) < best or True:
-                torch.save(model.state_dict(), "model.pt")
-                save_parameters_from_model(model, 'model_state.pt')
-                best = np.mean(lc)
-            #
-            # if valid_emse[-1] < min_mse:
-            #     min_mse = valid_emse[-1]
-            #     best_model = model
-            #     # test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=8)
-            #     # preds, trues, loss_curve = test_epoch(test_loader, best_model, loss_fun, error_fun)
-            #     #
-            #     # torch.save({"preds": preds,
-            #     #             "trues": trues,
-            #     #             "loss_curve": loss_curve},
-            #     #            "results.pt")
-
-            end = time.time()
-
-            print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
+        print("train emse", train_emse[-1], "minutes", round((end - start) / 60, 5))
