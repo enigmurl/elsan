@@ -525,13 +525,23 @@ class CGAN(FluidFlowPredictor):
 
         return error
 
+    def gparameters(self):
+        for name, parameter in self.named_parameters():
+            if not name.startswith("discriminator"):
+                yield parameter
+
+    def dparameters(self):
+        for name, parameter in self.named_parameters():
+            if not name.startswith("generator"):
+                yield parameter
+
     def run_single(self, seed, t):
         # advanced pruning vector
         pruning = self.single_pruning(seed, t)
         noise = torch.normal(0, 1, size=(1, *self.noise_shape)).to(device)
         return self.generator(torch.cat((noise, pruning), dim=-3)), pruning
 
-    def train_epoch(self, max_seed_index, optimizer, max_out_frame=None):
+    def train_epoch(self, max_seed_index, optimizers, max_out_frame=None):
         stat_loss_curve = []
 
         permutation = torch.randperm(max_seed_index)
@@ -568,13 +578,20 @@ class CGAN(FluidFlowPredictor):
             expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
                 .to(device)
-            loss = torch.nn.functional.binary_cross_entropy(disc, expected)
+
+            gloss = torch.nn.functional.binary_cross_entropy(disc[:preds.shape[0]], (1 - expected)[:preds.shape[0]])
+            dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
-            stat_loss_curve.append(loss.item())
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            stat_loss_curve.append((dloss + gloss).item())
+
+            optimizers[0].zero_grad()
+            gloss.backward()
+            optimizers[0].step()
+
+            optimizers[1].zero_grad()
+            dloss.backward()
+            optimizers[1].step()
 
 
 class ScoreMatching(nn.Module):
