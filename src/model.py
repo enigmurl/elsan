@@ -9,71 +9,6 @@ from util import get_device, mask_tensor, ternary_decomp
 
 device = get_device()
 
-
-def sample(channels: torch.tensor, t):
-    ret = torch.zeros((channels.shape[0], 2, *channels.shape[2:]), device=t.device)
-
-    prev_x, prev_y, prev_p = 0, 0, 0
-    for i in range(len(CON_LIST) + 1):
-        next_x = 0 if i == len(CON_LIST) else channels[:, 2 * i]
-        next_y = 0 if i == len(CON_LIST) else channels[:, 2 * i + 1]
-        next_p = 1 if i == len(CON_LIST) else NormalDist().cdf(CON_LIST[i])
-
-        mask = (t >= prev_p) & (t <= next_p)
-        t_prime = (t - prev_p) / (next_p - prev_p)
-
-        ret[:, 0][mask] = (t_prime * (next_x - prev_x) + prev_x)[mask]
-        ret[:, 1][mask] = (t_prime * (next_y - prev_y) + prev_y)[mask]
-
-        prev_x = next_x
-        prev_y = next_y
-        prev_p = next_p
-
-    return ret
-
-
-def ran_sample(model, pruning_error, expected):
-    output = torch.ones((pruning_error.shape[0]), 4, pruning_error.shape[-2], pruning_error.shape[-1],
-                        device=pruning_error.device)
-
-    masks_ = mask_tensor()
-    masks_ = masks_[0].to(pruning_error.device), masks_[1].to(pruning_error.device)
-    prevs, masks = torch.tile(torch.unsqueeze(masks_[0], 0), (len(pruning_error), 1, 1, 1)), \
-        torch.tile(torch.unsqueeze(masks_[1], 0), (len(pruning_error), 1, 1, 1))
-
-    rmse = []
-    for i in range(masks.shape[1]):
-        query = torch.full((pruning_error.shape[0], 4, pruning_error.shape[-2], pruning_error.shape[-1]),
-                           DATA_UPPER_UNKNOWN_VALUE, device=pruning_error.device)
-        query[:, :2] = DATA_LOWER_UNKNOWN_VALUE
-        m = masks[:, i]
-        real_prev, real_mask = torch.unsqueeze(prevs[:, i], dim=1), torch.unsqueeze(m, dim=1)
-        real_prev = torch.tile(real_prev & ~real_mask, (2, 1, 1))
-        mask2 = torch.tile(real_mask, (2, 1, 1))
-        query[0, :2][real_prev[0]] = output[0, :2][real_prev[0]]
-        query[0, 2:][real_prev[0]] = output[0, :2][real_prev[0]]
-
-        # compute query
-        query[0:, :2][mask2] = DATA_LOWER_QUERY_VALUE
-        query[0:, 2:][mask2] = DATA_UPPER_QUERY_VALUE
-
-        predicted = model(pruning_error, query)
-        start = NormalDist().cdf(CON_LIST[0])
-        delta = sample(predicted, start + (1 - 2 * start) * torch.rand((predicted.shape[0], *predicted.shape[2:]),
-                                                                       device=pruning_error.device))
-
-        output[:, :2][mask2] = delta[mask2]
-        output[:, 2:][mask2] = delta[mask2]
-
-        if expected is not None:
-            rmse.append(torch.mean(torch.square(output[0, :2][mask2[0]] - expected[0][mask2[0]])))
-
-    if expected is not None:
-        print(f"RMSE: {torch.sqrt(torch.mean(torch.tensor(rmse))):4f}")
-
-    return output[:, :2]
-
-
 def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
     if not norm:
         layer = nn.Sequential(
@@ -493,6 +428,7 @@ class CGAN(FluidFlowPredictor):
         self.ensembles_per_batch = ensembles_per_batch
         self.ensemble_total_size=ensemble_total_size
         self.max_out_frame = max_out_frame
+        self.noise_shape = (noise_dim, 63, 63)
 
         self.base = BasePruner(input_channels, pruning_size,
                                kernel_size=kernel_size,
@@ -509,6 +445,7 @@ class CGAN(FluidFlowPredictor):
         self.discriminator_4 = torch.nn.Linear(16, 1)
 
         trans_required = 2
+        self.k = 6
         self.trans = nn.ModuleList([TransitionPruner(pruning_size,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
@@ -553,27 +490,27 @@ class CGAN(FluidFlowPredictor):
             preds = []
             trues = []
             for j in range(seed_indices.shape[0]):
-                jump = 1 + np.randint(0, np.min(self.max_out_frame, max_out_frame), (1,))
+                jump = 1 + np.random.randint(0, np.minimum(self.max_out_frame, max_out_frame))
                 pruning_starts.append(self.single_pruning(seeds[j], jump))
 
                 noise = torch.normal(0, 1, size=(self.ensembles_per_batch, *self.noise_shape)).to(device)
-                preds.append(self.generator(torch.cat((noise, pruning_starts[-1]), dim=-3)))
+                preds.append(self.generator(torch.cat((noise, torch.repeat_interleave(pruning_starts[-1], self.ensembles_per_batch, dim=0)), dim=-3)))
 
                 indices = torch.randint(0, self.ensemble_total_size, (self.ensembles_per_batch,)).to(device)
                 trues.append(load_frame(seed_indices[j], indices, jump - 1))
 
             preds = torch.cat(preds, dim=0)
             trues = torch.cat(trues, dim=0)
-            pruning_starts = torch.repeat_interleave(torch.stack(pruning_starts + pruning_starts),
+            pruning_starts = torch.repeat_interleave(torch.cat(pruning_starts + pruning_starts, dim=0),
                                                      self.ensembles_per_batch, dim=0)
             disc_input = torch.cat((preds, trues), dim=0)
             disc_input = torch.cat((disc_input, pruning_starts), dim=1)
 
-            disc = self.discriminator_base(disc_input)
+            _, _, _, disc = self.discriminator_base(disc_input)
             disc = torch.nn.functional.relu(self.discriminator_1(disc.view(disc.shape[0], -1)))
             disc = torch.nn.functional.relu(self.discriminator_2(disc))
             disc = torch.nn.functional.relu(self.discriminator_3(disc))
-            disc = torch.nn.functional.sigmoid(self.discriminator_4(disc))
+            disc = torch.flatten(torch.sigmoid(self.discriminator_4(disc)))
 
             expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
@@ -592,6 +529,8 @@ class CGAN(FluidFlowPredictor):
             optimizers[1].zero_grad()
             dloss.backward()
             optimizers[1].step()
+
+        return stat_loss_curve
 
 
 class ScoreMatching(nn.Module):

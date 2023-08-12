@@ -7,7 +7,6 @@ import sys
 
 from hyperparameters import *
 from model import CGAN
-from penalty import DivergenceLoss, BigErrorLoss, BaseErrorLoss
 from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
     train_base_orthonet_epoch
 from util import get_device, write_parameters_into_model, save_parameters_from_model
@@ -31,9 +30,6 @@ if __name__ == '__main__':
         model = model.to(device)
 
     loss_fun = torch.nn.MSELoss()
-    error_fun = BigErrorLoss()
-    base_error = BaseErrorLoss()
-    regularizer = DivergenceLoss(torch.nn.MSELoss())
 
     goptimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
     doptimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
