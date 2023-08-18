@@ -482,6 +482,7 @@ class CGAN(FluidFlowPredictor):
         stat_loss_curve = []
 
         permutation = torch.randperm(max_seed_index)
+        step = 0
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
             seeds = load_seed(seed_indices)
@@ -520,15 +521,17 @@ class CGAN(FluidFlowPredictor):
             dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
-            stat_loss_curve.append((dloss + gloss).item())
+            stat_loss_curve.append([dloss.item(), gloss.item()])
 
-            optimizers[0].zero_grad()
-            gloss.backward()
-            optimizers[0].step()
-
-            optimizers[1].zero_grad()
-            dloss.backward()
-            optimizers[1].step()
+            step += 1
+            if step % 2 == 0:
+                optimizers[0].zero_grad()
+                gloss.backward()
+                optimizers[0].step()
+            else:
+                optimizers[1].zero_grad()
+                dloss.backward()
+                optimizers[1].step()
 
         return stat_loss_curve
 

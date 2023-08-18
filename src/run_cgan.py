@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
         model.train()
         lc = model.train_epoch(128, [goptimizer, doptimizer], max_out_frame=i // 2 + 1)
-        train_emse.append(np.mean(lc))
+        train_emse.append(np.mean(lc, axis=0))
 
         if np.mean(lc) < best or True:
             torch.save(model.state_dict(), "cgan.pt")
