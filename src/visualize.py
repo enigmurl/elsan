@@ -61,8 +61,10 @@ class VisualizeSigma(Scene):
         return data, torch.flatten(frames, 1, 2)
 
     def model(self):
-        model = ELSAN().to(device)
-        write_parameters_into_model(model, 'model_state.pt')
+        # model = ELSAN().to(device)
+        # write_parameters_into_model(model, 'model_state.pt')
+        model = CGAN().to(device)
+        write_parameters_into_model(model, 'cgan_state.pt')
         return model.to(device)
 
     def construct(self) -> None:
@@ -104,7 +106,7 @@ class VisualizeSigma(Scene):
         else:
             print(frames.shape)
             # full, _ = model.run_single_true(xx, TARG, frames[:, 2*TARG: 2*TARG + 2], apply_second=True)
-            full, _, _ = model.run_single(xx, TARG)
+            full, _ = model.run_single(xx, TARG)
             print(full.shape)
             full = full.view(-1, 2, 63, 63)
             # full, _ = model.run_single_true(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device), torch.repeat_interleave(frames[:1, TARG * 2 : TARG * 2 + 2], 32, dim=0), apply_second=True)

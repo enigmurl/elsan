@@ -521,7 +521,9 @@ class CGAN(FluidFlowPredictor):
             dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
-            stat_loss_curve.append([dloss.item(), gloss.item()])
+            stat_loss_curve.append([dloss.item(), gloss.item(),
+                                    torch.sqrt(torch.mean(torch.square(preds - trues))).item(),
+                                    ])
 
             step += 1
             if step % 2 == 0:

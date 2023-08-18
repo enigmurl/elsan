@@ -51,10 +51,10 @@ if __name__ == '__main__':
         lc = model.train_epoch(128, [goptimizer, doptimizer], max_out_frame=i // 2 + 1)
         train_emse.append(np.mean(lc, axis=0))
 
-        if np.mean(lc) < best or True:
+        if np.mean(lc[:2]) < best or True:
             torch.save(model.state_dict(), "cgan.pt")
             save_parameters_from_model(model, 'cgan_state.pt')
-            best = np.mean(lc)
+            best = np.mean(lc[:2])
 
         end = time.time()
 
