@@ -31,8 +31,8 @@ if __name__ == '__main__':
 
     loss_fun = torch.nn.MSELoss()
 
-    goptimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
-    doptimizer = torch.optim.Adam(model.parameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    goptimizer = torch.optim.Adam(model.gparameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    doptimizer = torch.optim.Adam(model.dparameters(), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
 
     train_emse = []
     valid_emse = []
@@ -48,7 +48,7 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        lc = model.train_epoch(128, [goptimizer, doptimizer], max_out_frame=i // 2 + 1)
+        lc = model.train_epoch(128, [goptimizer, doptimizer], max_out_frame=i // 16 + 1)
         train_emse.append(np.mean(lc, axis=0))
 
         if np.mean(lc[:2]) < best or True:

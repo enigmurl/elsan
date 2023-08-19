@@ -430,7 +430,11 @@ class CGAN(FluidFlowPredictor):
         self.max_out_frame = max_out_frame
         self.noise_shape = (noise_dim, 63, 63)
 
-        self.base = BasePruner(input_channels, pruning_size,
+        self.generator_base = BasePruner(input_channels, pruning_size,
+                               kernel_size=kernel_size,
+                               dropout_rate=dropout_rate,
+                               time_range=1)
+        self.discriminator_base = BasePruner(input_channels, pruning_size,
                                kernel_size=kernel_size,
                                dropout_rate=dropout_rate,
                                time_range=1)
@@ -438,7 +442,7 @@ class CGAN(FluidFlowPredictor):
         self.generator = ClippingLayer(noise_dim, pruning_size,
                                        dropout_rate=dropout_rate, kernel=kernel_size)
 
-        self.discriminator_base = Encoder(pruning_size + 2, kernel_size=kernel_size, dropout_rate=dropout_rate)
+        self.discriminator_0 = Encoder(pruning_size + 2, kernel_size=kernel_size, dropout_rate=dropout_rate)
         self.discriminator_1 = torch.nn.Linear(512 * 4 * 4, 512)
         self.discriminator_2 = torch.nn.Linear(512, 128)
         self.discriminator_3 = torch.nn.Linear(128, 16)
@@ -446,7 +450,10 @@ class CGAN(FluidFlowPredictor):
 
         trans_required = 2
         self.k = 6
-        self.trans = nn.ModuleList([TransitionPruner(pruning_size,
+        self.generator_trans = nn.ModuleList([TransitionPruner(pruning_size,
+                                                     kernel=kernel_size,
+                                                     dropout=dropout_rate) for _ in range(trans_required)])
+        self.discriminator_trans = nn.ModuleList([TransitionPruner(pruning_size,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
@@ -455,10 +462,22 @@ class CGAN(FluidFlowPredictor):
         running = -1
         seed = torch.unsqueeze(seed, dim=0)
 
-        error = self.base(seed)
+        error = self.generator_base(seed)
         for delta in decomp:
             running += self.k ** delta
-            error = self.trans[delta](error)
+            error = self.generator_trans[delta](error)
+
+        return error
+
+    def discriminator_single_pruning(self, seed, t):
+        decomp = index_decomp(t, self.k)
+        running = -1
+        seed = torch.unsqueeze(seed, dim=0)
+
+        error = self.discriminator_base(seed)
+        for delta in decomp:
+            running += self.k ** delta
+            error = self.discriminator_trans[delta](error)
 
         return error
 
@@ -492,10 +511,11 @@ class CGAN(FluidFlowPredictor):
             trues = []
             for j in range(seed_indices.shape[0]):
                 jump = 1 + np.random.randint(0, np.minimum(self.max_out_frame, max_out_frame))
-                pruning_starts.append(self.single_pruning(seeds[j], jump))
-
+                pruning = self.single_pruning(seeds[j], jump)
+                pruning_starts.append(self.discriminator_single_pruning(seeds[j], jump))
                 noise = torch.normal(0, 1, size=(self.ensembles_per_batch, *self.noise_shape)).to(device)
-                preds.append(self.generator(torch.cat((noise, torch.repeat_interleave(pruning_starts[-1], self.ensembles_per_batch, dim=0)), dim=-3)))
+
+                preds.append(self.generator(torch.cat((noise, torch.repeat_interleave(pruning, self.ensembles_per_batch, dim=0)), dim=-3)))
 
                 indices = torch.randint(0, self.ensemble_total_size, (self.ensembles_per_batch,)).to(device)
                 trues.append(load_frame(seed_indices[j], indices, jump - 1))
@@ -507,7 +527,7 @@ class CGAN(FluidFlowPredictor):
             disc_input = torch.cat((preds, trues), dim=0)
             disc_input = torch.cat((disc_input, pruning_starts), dim=1)
 
-            _, _, _, disc = self.discriminator_base(disc_input)
+            _, _, _, disc = self.discriminator_0(disc_input)
             disc = torch.nn.functional.relu(self.discriminator_1(disc.view(disc.shape[0], -1)))
             disc = torch.nn.functional.relu(self.discriminator_2(disc))
             disc = torch.nn.functional.relu(self.discriminator_3(disc))
@@ -517,7 +537,7 @@ class CGAN(FluidFlowPredictor):
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
                 .to(device)
 
-            gloss = torch.nn.functional.binary_cross_entropy(disc[:preds.shape[0]], (1 - expected)[:preds.shape[0]])
+            gloss = torch.nn.functional.binary_cross_entropy(disc[:preds.shape[0]], (1 - expected)[:preds.shape[0]]) + torch.sqrt(torch.mean(torch.square(preds - trues)))
             dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
@@ -541,3 +561,4 @@ class CGAN(FluidFlowPredictor):
 class ScoreMatching(nn.Module):
     def __init__(self):
         super().__init__()
+
