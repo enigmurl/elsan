@@ -404,7 +404,8 @@ class ELSAN(FluidFlowPredictor):
                     # print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
                     # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
                 stat_loss_curve.append(loss[step % len(loss)].item())
-                optimizers[step % len(optimizers)].zero_grad()
+                for optimizer in optimizers:
+                    optimizer.zero_grad()
                 loss[step % len(loss)].backward()
                 optimizers[step % len(optimizers)].step()
 
@@ -441,12 +442,18 @@ class CGAN(FluidFlowPredictor):
 
         self.generator = ClippingLayer(noise_dim, pruning_size,
                                        dropout_rate=dropout_rate, kernel=kernel_size)
+        self.generator_dum = ClippingLayer(noise_dim, pruning_size,
+                                       dropout_rate=dropout_rate, kernel=kernel_size)
 
-        self.discriminator_0 = Encoder(pruning_size + 2, kernel_size=kernel_size, dropout_rate=dropout_rate)
-        self.discriminator_1 = torch.nn.Linear(512 * 4 * 4, 512)
-        self.discriminator_2 = torch.nn.Linear(512, 128)
-        self.discriminator_3 = torch.nn.Linear(128, 16)
-        self.discriminator_4 = torch.nn.Linear(16, 1)
+
+        self.discriminator_0 = conv(pruning_size+2, 64, kernel_size=3, stride=2, dropout_rate = dropout_rate)
+        self.discriminator_1 = conv(64 , 128, kernel_size=3, stride=2, dropout_rate = dropout_rate)
+        self.discriminator_2 = conv(128, 256, kernel_size=3, stride=2, dropout_rate = dropout_rate)
+        self.discriminator_3 = conv(256, 512, kernel_size=3, stride=2, dropout_rate = dropout_rate)
+
+        self.discriminator_4 = torch.nn.Linear(512 * 4 * 4, 512)
+        self.discriminator_5 = torch.nn.Linear(512, 16)
+        self.discriminator_6 = torch.nn.Linear(16, 1)
 
         trans_required = 2
         self.k = 6
@@ -483,12 +490,12 @@ class CGAN(FluidFlowPredictor):
 
     def gparameters(self):
         for name, parameter in self.named_parameters():
-            if not name.startswith("discriminator"):
+            if name.startswith("generator"):
                 yield parameter
 
     def dparameters(self):
         for name, parameter in self.named_parameters():
-            if not name.startswith("generator"):
+            if name.startswith("discriminator"):
                 yield parameter
 
     def run_single(self, seed, t):
@@ -527,17 +534,21 @@ class CGAN(FluidFlowPredictor):
             disc_input = torch.cat((preds, trues), dim=0)
             disc_input = torch.cat((disc_input, pruning_starts), dim=1)
 
-            _, _, _, disc = self.discriminator_0(disc_input)
-            disc = torch.nn.functional.relu(self.discriminator_1(disc.view(disc.shape[0], -1)))
-            disc = torch.nn.functional.relu(self.discriminator_2(disc))
-            disc = torch.nn.functional.relu(self.discriminator_3(disc))
-            disc = torch.flatten(torch.sigmoid(self.discriminator_4(disc)))
+           
+            disc = self.discriminator_0(disc_input)
+            disc = self.discriminator_1(disc)
+            disc = self.discriminator_2(disc)
+            disc = self.discriminator_3(disc)
+
+            disc = torch.tanh(self.discriminator_4(disc.view(disc.shape[0], -1)))
+            disc = torch.tanh(self.discriminator_5(disc))
+            disc = torch.flatten(torch.sigmoid(self.discriminator_6(disc)))
 
             expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
                 .to(device)
 
-            gloss = torch.nn.functional.binary_cross_entropy(disc[:preds.shape[0]], (1 - expected)[:preds.shape[0]]) + torch.sqrt(torch.mean(torch.square(preds - trues)))
+            gloss = torch.nn.functional.binary_cross_entropy(disc[:disc.shape[0] // 2], (1 - expected)[:disc.shape[0] // 2]) + torch.abs(torch.mean(torch.abs(preds)) - torch.mean(torch.abs(trues)))
             dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
@@ -546,12 +557,13 @@ class CGAN(FluidFlowPredictor):
                                     ])
 
             step += 1
-            if step % 2 == 0:
-                optimizers[0].zero_grad()
+            optimizers[0].zero_grad()
+            optimizers[1].zero_grad()
+
+            if gloss > dloss:
                 gloss.backward()
                 optimizers[0].step()
             else:
-                optimizers[1].zero_grad()
                 dloss.backward()
                 optimizers[1].step()
 
