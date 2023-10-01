@@ -463,7 +463,7 @@ class GAN(FluidFlowPredictor):
         self.seeds_in_batch = 64
 
     def forward(self, xx):
-        pass
+        return self.generator(xx)
 
     def train_epoch(self, max_seed_index, goptimizer, doptimizer):
         stat_loss_curve = []
@@ -484,6 +484,7 @@ class GAN(FluidFlowPredictor):
 
             dloss = torch.nn.functional.binary_cross_entropy(disc, dexpected)
             gloss = torch.nn.functional.binary_cross_entropy(disc, gexpected)
+            gloss = torch.sqrt(torch.mean(torch.square(preds - trues)))
 
             if mini_index % 2:
                 # apply gen

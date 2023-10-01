@@ -31,8 +31,8 @@ if __name__ == '__main__':
 
     loss_fun = torch.nn.MSELoss()
 
-    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 2e-4)
-    doptimizer = torch.optim.Adam(list(model.discriminator.parameters()),1e-4)
+    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 1e-3)
+    doptimizer = torch.optim.Adam(list(model.discriminator.parameters()),1e-3)
 
     train_emse = []
     valid_emse = []
