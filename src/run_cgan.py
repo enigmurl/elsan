@@ -29,7 +29,7 @@ if __name__ == '__main__':
         write_parameters_into_model(model, 'cgan_state.pt')
         model = model.to(device)
 
-    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 2e-3)
+    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 2e-4)
     doptimizer = torch.optim.Adam(list(model.discriminator.parameters()),2e-4)
 
     train_emse = []

@@ -8,7 +8,7 @@ from functools import lru_cache
 from util import get_device, mask_tensor, ternary_decomp
 
 device = get_device()
-def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=False):
+def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
     if not norm:
         layer = nn.Sequential(
             nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
@@ -426,7 +426,7 @@ class Generator(nn.Module):
         inp = torch.cat((xx, noise), dim=1)
         base = self.pass_through(inp)
 
-        return base
+        return torch.nn.functional.tanh(base)
 
 class Discriminator(nn.Module):
 
@@ -490,7 +490,7 @@ class GAN(FluidFlowPredictor):
             dexpected = torch.tensor([1] * (preds.shape[0]) + [0] * (preds.shape[0]), dtype=torch.float32).to(device)
 
             dloss = torch.nn.functional.binary_cross_entropy(disc, dexpected)
-            if epoch_num < 6:
+            if epoch_num < 0:
                 # seed
                 gloss = torch.sqrt(torch.mean(torch.square(preds - trues)))
             else:
