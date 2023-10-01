@@ -411,13 +411,104 @@ class ELSAN(FluidFlowPredictor):
 
         return stat_loss_curve
 
+class Generator(nn.Module):
+
+    def __init__(self, pruning_size=4):
+        super().__init__()
+
+        self.pruning_size = pruning_size
+        self.noise_shape = (pruning_size, 63, 63)
+
+        self.pass_through = ClippingLayer(pruning_size, 32)
+
+    def forward(self, xx):
+        noise = torch.normal(0, 1, size=(xx.shape[0], *self.noise_shape)).to(device)
+        inp = torch.cat((xx, noise), dim=1)
+        base = self.pass_through(inp)
+
+        return base
+
+class Discriminator(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.encoder = Encoder(2, 3, 0)
+
+        self.dense_1 = torch.nn.Linear(4 * 4 * 512, 64)
+        self.dense_2 = torch.nn.Linear(8 * 8 * 256   + 64, 64)
+        self.dense_3 = torch.nn.Linear(16 * 16 * 128 + 64, 16)
+        self.dense_4 = torch.nn.Linear(32 * 32 * 64  + 16, 1)
+
+    def forward(self, xx):
+        l0, l1, l2, l3 = self.encoder(xx)
+
+        base = torch.nn.functional.leaky_relu(self.dense_1(torch.flatten(l3, start_dim=1)))
+        base = torch.nn.functional.leaky_relu(self.dense_2(torch.cat((base, torch.flatten(l2, start_dim=1)),dim=1)))
+        base = torch.nn.functional.leaky_relu(self.dense_3(torch.cat((base, torch.flatten(l1, start_dim=1)),dim=1)))
+        base = torch.sigmoid(self.dense_4(torch.cat((base, torch.flatten(l0, start_dim=1)),dim=1)))
+
+        return base
+
+
+class GAN(FluidFlowPredictor):
+
+    def __init__(self):
+        super().__init__()
+
+        self.generator = Generator()
+        self.discriminator = Discriminator()
+
+        self.ensemble_total_size = 120
+        self.seeds_in_batch = 64
+
+    def forward(self, xx):
+        pass
+
+    def train_epoch(self, max_seed_index, goptimizer, doptimizer):
+        stat_loss_curve = []
+
+        permutation = torch.randperm(max_seed_index)
+        step = 0
+        for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
+            seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
+            seeds = load_seed(seed_indices)
+            trues = torch.stack([load_frame(seed, np.random.randint(0, self.ensemble_total_size), 0) for seed in seed_indices])
+
+            preds = self.generator(seeds)
+
+            disc = torch.flatten(self.discriminator(torch.cat((preds, trues), dim=0)))
+
+            dexpected = torch.tensor([1] * (preds.shape[0]) + [0] * (preds.shape[0]), dtype=torch.float32).to(device)
+            gexpected = torch.zeros_like(dexpected)
+
+            dloss = torch.nn.functional.binary_cross_entropy(disc, dexpected)
+            gloss = torch.nn.functional.binary_cross_entropy(disc, gexpected)
+
+            if mini_index % 2:
+                # apply gen
+                goptimizer.zero_grad()
+                gloss.backward()
+                goptimizer.step()
+            else:
+                # apply disc
+                doptimizer.zero_grad()
+                dloss.backward()
+                doptimizer.step()
+
+            stat_loss_curve.append([gloss.item(), dloss.item(),
+                                    torch.sqrt(torch.mean(torch.square(preds - trues))).item(),
+                                    ])
+    
+        return stat_loss_curve
+
 
 class CGAN(FluidFlowPredictor):
     def __init__(self,
                  seeds_in_batch=16,
                  ensembles_per_batch=4,
                  ensemble_total_size=128,
-                 max_out_frame=32,
+                 max_out_frame=1,
                  noise_dim=16,
                  input_channels=16 * 2,
                  pruning_size=1,
@@ -442,9 +533,6 @@ class CGAN(FluidFlowPredictor):
 
         self.generator = ClippingLayer(noise_dim, pruning_size,
                                        dropout_rate=dropout_rate, kernel=kernel_size)
-        self.generator_dum = ClippingLayer(noise_dim, pruning_size,
-                                       dropout_rate=dropout_rate, kernel=kernel_size)
-
 
         self.discriminator_0 = conv(pruning_size+2, 64, kernel_size=3, stride=2, dropout_rate = dropout_rate)
         self.discriminator_1 = conv(64 , 128, kernel_size=3, stride=2, dropout_rate = dropout_rate)
@@ -463,6 +551,15 @@ class CGAN(FluidFlowPredictor):
         self.discriminator_trans = nn.ModuleList([TransitionPruner(pruning_size,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, 0.002 / n)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
     def single_pruning(self, seed, t):
         decomp = index_decomp(t, self.k)
@@ -540,19 +637,21 @@ class CGAN(FluidFlowPredictor):
             disc = self.discriminator_2(disc)
             disc = self.discriminator_3(disc)
 
-            disc = torch.tanh(self.discriminator_4(disc.view(disc.shape[0], -1)))
-            disc = torch.tanh(self.discriminator_5(disc))
+            disc = torch.nn.functional.leaky_relu(self.discriminator_4(disc.view(disc.shape[0], -1)))
+            disc = torch.nn.functional.leaky_relu(self.discriminator_5(disc))
             disc = torch.flatten(torch.sigmoid(self.discriminator_6(disc)))
 
             expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
                 .to(device)
 
-            gloss = torch.nn.functional.binary_cross_entropy(disc[:disc.shape[0] // 2], (1 - expected)[:disc.shape[0] // 2]) + torch.abs(torch.mean(torch.abs(preds)) - torch.mean(torch.abs(trues)))
-            dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
+            gloss = torch.mean(torch.abs(disc - (1 - expected))) + torch.abs(torch.mean(torch.abs(preds)) - torch.mean(torch.abs(trues)))
+            dloss = torch.mean(torch.abs(disc - (expected))) 
+            #dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
+            #dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
 
             # optimizer
-            stat_loss_curve.append([dloss.item(), gloss.item(),
+            stat_loss_curve.append([gloss.item(), dloss.item(),
                                     torch.sqrt(torch.mean(torch.square(preds - trues))).item(),
                                     ])
 
@@ -560,13 +659,14 @@ class CGAN(FluidFlowPredictor):
             optimizers[0].zero_grad()
             optimizers[1].zero_grad()
 
-            if gloss > dloss:
+            if max_out_frame % 2:
                 gloss.backward()
                 optimizers[0].step()
             else:
                 dloss.backward()
                 optimizers[1].step()
 
+        print(disc)
         return stat_loss_curve
 
 
