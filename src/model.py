@@ -8,8 +8,7 @@ from functools import lru_cache
 from util import get_device, mask_tensor, ternary_decomp
 
 device = get_device()
-
-def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=True):
+def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad=True, norm=False):
     if not norm:
         layer = nn.Sequential(
             nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
@@ -21,7 +20,7 @@ def conv(input_channels, output_channels, kernel_size, stride, dropout_rate, pad
         layer = nn.Sequential(
             nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size,
                       stride=stride, padding=(kernel_size - 1) // 2 if pad else 0),
-            nn.BatchNorm2d(output_channels, track_running_stats=False),
+            nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(dropout_rate)
         )
@@ -45,13 +44,12 @@ class Encoder(nn.Module):
         self.conv4 = conv(256, 512, kernel_size=kernel_size, stride=2, dropout_rate=dropout_rate)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, 0.002 / n)
+                m.weight.data.normal_(0, 0.02)
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+                torch.nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
         out_conv1 = self.conv1(x)
@@ -421,6 +419,8 @@ class Generator(nn.Module):
 
         self.pass_through = ClippingLayer(pruning_size, 32)
 
+        self.debug = torch.nn.Linear(1, 2 * 63 * 63)
+
     def forward(self, xx):
         noise = torch.normal(0, 1, size=(xx.shape[0], *self.noise_shape)).to(device)
         inp = torch.cat((xx, noise), dim=1)
@@ -433,22 +433,29 @@ class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.encoder = Encoder(2, 3, 0)
+        self.main = nn.Sequential(
+            nn.Conv2d(2, 32, 3, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
 
-        self.dense_1 = torch.nn.Linear(4 * 4 * 512, 64)
-        self.dense_2 = torch.nn.Linear(8 * 8 * 256   + 64, 64)
-        self.dense_3 = torch.nn.Linear(16 * 16 * 128 + 64, 16)
-        self.dense_4 = torch.nn.Linear(32 * 32 * 64  + 16, 1)
+            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(128, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(128, 1, 4),
+            nn.Sigmoid()
+        )
 
     def forward(self, xx):
-        l0, l1, l2, l3 = self.encoder(xx)
-
-        base = torch.nn.functional.leaky_relu(self.dense_1(torch.flatten(l3, start_dim=1)))
-        base = torch.nn.functional.leaky_relu(self.dense_2(torch.cat((base, torch.flatten(l2, start_dim=1)),dim=1)))
-        base = torch.nn.functional.leaky_relu(self.dense_3(torch.cat((base, torch.flatten(l1, start_dim=1)),dim=1)))
-        base = torch.sigmoid(self.dense_4(torch.cat((base, torch.flatten(l0, start_dim=1)),dim=1)))
-
-        return base
+        return self.main(xx)
 
 
 class GAN(FluidFlowPredictor):
@@ -460,18 +467,19 @@ class GAN(FluidFlowPredictor):
         self.discriminator = Discriminator()
 
         self.ensemble_total_size = 120
-        self.seeds_in_batch = 64
+        self.ensembles_in_batch = 4
+        self.seeds_in_batch = 16
 
     def forward(self, xx):
         return self.generator(xx)
 
-    def train_epoch(self, max_seed_index, goptimizer, doptimizer):
+    def train_epoch(self, max_seed_index, goptimizer, doptimizer, epoch_num):
         stat_loss_curve = []
 
         permutation = torch.randperm(max_seed_index)
         step = 0
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
-            seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
+            seed_indices = torch.repeat_interleave(permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch], self.ensembles_in_batch)
             seeds = load_seed(seed_indices)
             trues = torch.stack([load_frame(seed, np.random.randint(0, self.ensemble_total_size), 0) for seed in seed_indices])
 
@@ -480,11 +488,14 @@ class GAN(FluidFlowPredictor):
             disc = torch.flatten(self.discriminator(torch.cat((preds, trues), dim=0)))
 
             dexpected = torch.tensor([1] * (preds.shape[0]) + [0] * (preds.shape[0]), dtype=torch.float32).to(device)
-            gexpected = torch.zeros_like(dexpected)
 
             dloss = torch.nn.functional.binary_cross_entropy(disc, dexpected)
-            gloss = torch.nn.functional.binary_cross_entropy(disc, gexpected)
-            gloss = torch.sqrt(torch.mean(torch.square(preds - trues)))
+            if epoch_num < 6:
+                # seed
+                gloss = torch.sqrt(torch.mean(torch.square(preds - trues)))
+            else:
+                gexpected = torch.zeros_like(dexpected)
+                gloss = torch.nn.functional.binary_cross_entropy(disc, gexpected)
 
             if mini_index % 2:
                 # apply gen
@@ -500,7 +511,8 @@ class GAN(FluidFlowPredictor):
             stat_loss_curve.append([gloss.item(), dloss.item(),
                                     torch.sqrt(torch.mean(torch.square(preds - trues))).item(),
                                     ])
-    
+   
+        print(disc, preds[0][0])
         return stat_loss_curve
 
 

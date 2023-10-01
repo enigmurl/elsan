@@ -29,10 +29,8 @@ if __name__ == '__main__':
         write_parameters_into_model(model, 'cgan_state.pt')
         model = model.to(device)
 
-    loss_fun = torch.nn.MSELoss()
-
-    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 1e-3)
-    doptimizer = torch.optim.Adam(list(model.discriminator.parameters()),1e-3)
+    goptimizer = torch.optim.Adam(list(model.generator.parameters()), 2e-3)
+    doptimizer = torch.optim.Adam(list(model.discriminator.parameters()),2e-4)
 
     train_emse = []
     valid_emse = []
@@ -48,7 +46,7 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        lc = model.train_epoch(128, goptimizer, doptimizer)
+        lc = model.train_epoch(128, goptimizer, doptimizer, epoch_num=i)
         train_emse.append(np.mean(lc, axis=0))
 
         if np.mean(lc[:2]) < best or True:
