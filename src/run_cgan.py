@@ -6,7 +6,7 @@ import time
 import sys
 
 from hyperparameters import *
-from model import GAN
+from model import CGAN
 from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
     train_base_orthonet_epoch
 from util import get_device, write_parameters_into_model, save_parameters_from_model
@@ -22,15 +22,15 @@ if __name__ == '__main__':
     #                  time_range=O_TIME_RANGE
     #                  ).to(device)
 
-    model = GAN().to(device)
+    model = CGAN().to(device)
     org_model = model
 
     if len(sys.argv) > 1 and sys.argv[1] == 'recover':
         write_parameters_into_model(model, 'cgan_state.pt')
         model = model.to(device)
 
-    goptimizer = torch.optim.Adam(model.generator.parameters(), 0.001, betas=(0.5, 0.999))
-    doptimizer = torch.optim.Adam(model.discriminator.parameters(), 0.0001, betas=(0.5, 0.999))
+    goptimizer = torch.optim.Adam(model.gparameters(), 0.001, betas=(0.5, 0.999))
+    doptimizer = torch.optim.Adam(model.dparameters(), 0.00005, betas=(0.5, 0.999))
 
     train_emse = []
     valid_emse = []
@@ -46,7 +46,7 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
 
         model.train()
-        lc = model.train_epoch(128, goptimizer, doptimizer, epoch_num=i)
+        lc = model.train_epoch(128, [goptimizer, doptimizer], epoch_num=i)
         train_emse.append(np.mean(lc, axis=0))
 
         if np.mean(lc[:2]) < best or True:

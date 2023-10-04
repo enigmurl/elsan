@@ -318,11 +318,13 @@ class ELSAN(FluidFlowPredictor):
                 yield parameter
 
     # override for max_out_frame provided in case of warmup period
-    def train_epoch(self, max_seed_index, optimizers, max_out_frame=None):
+    def train_epoch(self, max_seed_index, optimizers, epoch_num=0):
         stat_loss_curve = []
 
         permutation = torch.randperm(max_seed_index)
         step = 0
+
+        max_out_frame = epoch_num + 1 
 
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
@@ -524,7 +526,7 @@ class GAN(FluidFlowPredictor):
                                     torch.mean(torch.abs(preds)).item(),
                                     ])
 
-            print(f"Epoch [{epoch_num}], D_loss: {dloss.item():.4f}, G_loss: {gloss.item():.4f} true: {torch.mean(preds - 1))}")
+            print(f"Epoch [{epoch_num}], D_loss: {dloss.item():.4f}, G_loss: {gloss.item():.4f} true: {torch.mean(preds - 1)}")
    
         print(disc[0], disc[-1])
         return stat_loss_curve
@@ -533,14 +535,15 @@ class GAN(FluidFlowPredictor):
 class CGAN(FluidFlowPredictor):
     def __init__(self,
                  seeds_in_batch=16,
-                 ensembles_per_batch=4,
+                 ensembles_per_batch=8,
                  ensemble_total_size=128,
-                 max_out_frame=1,
+                 max_out_frame=32,
                  noise_dim=16,
                  input_channels=16 * 2,
                  pruning_size=1,
                  kernel_size=3,
-                 dropout_rate=0):
+                 dropout_rate=0,
+                 mse=1):
         super().__init__()
 
         self.seeds_in_batch = seeds_in_batch
@@ -548,6 +551,8 @@ class CGAN(FluidFlowPredictor):
         self.ensemble_total_size=ensemble_total_size
         self.max_out_frame = max_out_frame
         self.noise_shape = (noise_dim, 63, 63)
+
+        self.mse = mse
 
         self.generator_base = BasePruner(input_channels, pruning_size,
                                kernel_size=kernel_size,
@@ -628,8 +633,10 @@ class CGAN(FluidFlowPredictor):
         noise = torch.normal(0, 1, size=(1, *self.noise_shape)).to(device)
         return self.generator(torch.cat((noise, pruning), dim=-3)), pruning
 
-    def train_epoch(self, max_seed_index, optimizers, max_out_frame=None):
+    def train_epoch(self, max_seed_index, optimizers, epoch_num):
         stat_loss_curve = []
+
+        max_out_frame = epoch_num // 4 + 1
 
         permutation = torch.randperm(max_seed_index)
         step = 0
@@ -668,14 +675,15 @@ class CGAN(FluidFlowPredictor):
             disc = torch.nn.functional.leaky_relu(self.discriminator_5(disc))
             disc = torch.flatten(torch.sigmoid(self.discriminator_6(disc)))
 
-            expected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
+            dexpected = torch.tensor([1] * (self.seeds_in_batch * self.ensembles_per_batch)
                                     + [0] * (self.seeds_in_batch * self.ensembles_per_batch), dtype=torch.float32) \
                 .to(device)
 
-            gloss = torch.mean(torch.abs(disc - (1 - expected))) + torch.abs(torch.mean(torch.abs(preds)) - torch.mean(torch.abs(trues)))
-            dloss = torch.mean(torch.abs(disc - (expected))) 
-            #dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
-            #dloss = torch.nn.functional.binary_cross_entropy(disc, expected)
+            gexpected = torch.zeros_like(dexpected)
+
+            gloss_raw = torch.nn.functional.binary_cross_entropy(disc, gexpected) 
+            gloss = torch.sqrt(torch.mean(torch.square(trues - preds))) * self.mse + gloss_raw
+            dloss = torch.nn.functional.binary_cross_entropy(disc, dexpected)
 
             # optimizer
             stat_loss_curve.append([gloss.item(), dloss.item(),
@@ -683,17 +691,17 @@ class CGAN(FluidFlowPredictor):
                                     ])
 
             step += 1
-            optimizers[0].zero_grad()
-            optimizers[1].zero_grad()
 
-            if max_out_frame % 2:
+            # make sure both receive some attention
+            if (gloss_raw > dloss and mini_index % 8 != 0) or mini_index % 8 == 1:
+                optimizers[0].zero_grad()
                 gloss.backward()
                 optimizers[0].step()
             else:
+                optimizers[1].zero_grad()
                 dloss.backward()
                 optimizers[1].step()
 
-        print(disc)
         return stat_loss_curve
 
 

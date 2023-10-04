@@ -1,106 +1,239 @@
+# A generative adversarial neural nets with a U-net generator and Convolution discriminator.
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+import torch.optim as optim
+import torch.nn.functional as F
+import itertools
+import random
+from torch.autograd import Variable
+from train import Dataset, test_epoch
+import torch.nn.functional as F
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# Generator
-class Generator(nn.Module):
-    def __init__(self, latent_dim=100):
-        super(Generator, self).__init__()
-        self.latent_dim = latent_dim
-        self.main = nn.Sequential(
-            nn.ConvTranspose2d(latent_dim, 64 * 4, 4, 1, 0),
-            nn.BatchNorm2d(64 * 4),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64 * 4, 64 * 2, 4, 2, 1),
-            nn.BatchNorm2d(64 * 2),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64 * 2, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64, 64, 4, 2, 1),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64, 2, 4, 2, 1),
-            nn.Tanh()
-        )
+def conv(in_planes, out_planes, kernel_size=3, stride=1):
+    return nn.Sequential(
+        nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size,
+                  stride=stride, padding=(kernel_size - 1) // 2, bias=False),
+        nn.BatchNorm2d(out_planes),
+        nn.LeakyReLU(0.1, inplace=True),
+    )
+
+def deconv(in_planes, out_planes):
+    return nn.Sequential(
+        nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4,
+                           stride=2, padding=1, bias=True),
+        nn.LeakyReLU(0.1, inplace=True),
+    )
+
+def predict_flow(in_planes, out_planes):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
+
+class U_net(nn.Module):
+    def __init__(self, input_channels=4, output_channels=1):
+        super(U_net, self).__init__()
+        self.input_channels = input_channels
+        self.conv1 = conv(input_channels, 64, kernel_size=3, stride=2)
+        self.conv2 = conv(64, 128, kernel_size=3, stride=2)
+        self.conv3 = conv(128, 256, kernel_size=3, stride=2)
+        self.conv3_1 = conv(256, 256, kernel_size=3)
+        self.conv4 = conv(256, 512, kernel_size=3, stride=2)
+        self.conv4_1 = conv(512, 512, kernel_size=3)
+        self.conv5 = conv(512, 1024, kernel_size=3, stride=2)
+        #self.conv5_1 = conv(1024, 1024)
+
+        self.deconv4 = deconv(1024, 256)
+        self.deconv3 = deconv(768, 128)
+        self.deconv2 = deconv(384, 64)
+        self.deconv1 = deconv(192, 32)
+        self.deconv0 = deconv(96, 16)
+
+        self.predict_flow0 = predict_flow(16 + input_channels, output_channels)
 
     def forward(self, x):
-        return self.main(x)
 
-# Discriminator
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.main = nn.Sequential(
-            nn.Conv2d(2, 64, 4, 2, 0),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 64 * 2, 4, 2, 0),
-            nn.BatchNorm2d(64 * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 2, 64 * 4, 4, 2, 0),
-            nn.BatchNorm2d(64 * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 4, 64 * 4, 4, 1, 0),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 4, 1, 3, 1, 0),
+        out_conv1 = self.conv1(x)
+        out_conv2 = self.conv2(out_conv1)
+        out_conv3 = self.conv3_1(self.conv3(out_conv2))
+        out_conv4 = self.conv4_1(self.conv4(out_conv3))
+        out_conv5 = self.conv5(out_conv4)
+
+        out_deconv4 = self.deconv4(out_conv5)
+        concat4 = torch.cat((out_conv4, out_deconv4), 1)
+        out_deconv3 = self.deconv3(concat4)
+        concat3 = torch.cat((out_conv3, out_deconv3), 1)
+        out_deconv2 = self.deconv2(concat3)
+        concat2 = torch.cat((out_conv2, out_deconv2), 1)
+        out_deconv1 = self.deconv1(concat2)
+        concat1 = torch.cat((out_conv1, out_deconv1), 1)
+        out_deconv0 = self.deconv0(concat1)
+        concat0 = torch.cat((x, out_deconv0), 1)
+        flow0 = self.predict_flow0(concat0)
+
+        return flow0
+
+class Generator(nn.Module):
+    def __init__(self, input_channels, output_channels):
+        super(Generator, self).__init__()
+        self.model = U_net(input_channels = input_channels, output_channels = output_channels)
+
+    def forward(self, xx, output_steps):
+        ims = []
+        for i in range(output_steps):
+            im = self.model(xx)
+            ims.append(im)
+            xx = torch.cat([xx[:, 2:], im], 1)
+        return torch.cat(ims, dim = 1)
+
+class Discriminator_Spatial(nn.Module):
+    def __init__(self, input_channels):
+        super(Discriminator_Spatial, self).__init__()
+        self.activ = nn.LeakyReLU(0.1, inplace=True)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(input_channels, 32, kernel_size = 5, padding = 2, stride = 2),
+            nn.BatchNorm2d(32)
+        )
+
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size = 5, padding = 2, stride = 2),
+            nn.BatchNorm2d(64)
+        )
+
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size = 5, padding = 2, stride = 2),
+            nn.BatchNorm2d(128)
+        )
+
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size = 5, padding = 2),
+            nn.BatchNorm2d(256)
+        )
+
+        self.dense_layer = nn.Sequential(
+            nn.Linear(256*8*8, 1),
             nn.Sigmoid()
         )
 
-    def forward(self, x):
-        return self.main(x)
+    def forward(self, ims):
+        ims1 = self.activ(self.conv1(ims))
+        ims2 = self.activ(self.conv2(ims1))
+        ims3 = self.activ(self.conv3(ims2))
+        ims4 = self.activ(self.conv4(ims3))
 
-# Create instances of the generator and discriminator
-generator = Generator().to('cuda')
-discriminator = Discriminator().to('cuda')
+        out = ims4.reshape(ims4.shape[0], -1)
+        out = self.dense_layer(out)
+        return out,  Variable(ims1, requires_grad=True), Variable(ims2, requires_grad=True), Variable(ims3, requires_grad=True), Variable(ims4, requires_grad=True)
 
-# Define loss function and optimizers
-criterion = nn.BCELoss()
-d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=0.0001)
-g_optimizer = torch.optim.Adam(generator.parameters(), lr=0.0001)
 
-# Training loop
-num_epochs = 100
-for epoch in range(num_epochs):
-    for batch_idx in range(10): 
-        batch_size = 128
-        real_images = 0.5 * torch.zeros((batch_size, 2, 64, 64)).to('cuda')
+def noise(bz, div):
+    return torch.rand(bz,1)/div
 
-        # Train Discriminator
-        real_labels = torch.ones(batch_size).to('cuda')
-        fake_labels = torch.zeros(batch_size).to('cuda')
-        
-        real_outputs = torch.flatten(discriminator(real_images))
-        d_loss_real = criterion(real_outputs, real_labels)
-        
-        input_noise = torch.randn(batch_size, 100, 1, 1).to('cuda')
-        fake_images = generator(input_noise)
-        fake_outputs = torch.flatten(discriminator(fake_images))
-        d_loss_fake = criterion(fake_outputs, fake_labels)
-        
-        d_loss = d_loss_real + d_loss_fake
-        d_optimizer.zero_grad()
-        d_loss.backward()
-        d_optimizer.step()
-        
-        # Train Generator
-        input_noise = torch.randn(batch_size, 100, 1, 1).to('cuda')
-        fake_images = generator(input_noise)
-        fake_outputs = torch.flatten(discriminator(fake_images))
-        
-        g_loss = criterion(fake_outputs, real_labels)
-        g_optimizer.zero_grad()
+
+batch_size = 64
+input_length = 25
+losses = []
+train_direc = "/global/cscratch1/sd/rwang2/TF-net/Data/data_64/sample_"
+test_direc = "/global/cscratch1/sd/rwang2/TF-net/Data/data_64/sample_"
+min_mse = 1
+
+coef = 1
+lr_g = 0.01
+lr_ds = 0.003
+output_length = 12
+
+# Data Loader
+train_indices = list(range(0, 6000))
+valid_indices = list(range(6000, 7700))
+test_indices = list(range(7700, 9800))
+
+train_set = Dataset(train_indices, input_length, 30, output_length, train_direc, True)
+valid_set = Dataset(valid_indices, input_length, 30, 6, test_direc, True)
+train_loader = data.DataLoader(train_set, batch_size = batch_size, shuffle = True, num_workers = 12)
+valid_loader = data.DataLoader(valid_set, batch_size = batch_size, shuffle = False, num_workers = 12)
+
+
+Gen = Generator(input_length*2, 2).to(device)
+Dis_s = Discriminator_Spatial(output_length*2).to(device)
+Gen = nn.DataParallel(Gen)
+Dis_s = nn.DataParallel(Dis_s)
+
+optimizer_G = torch.optim.Adam(Gen.parameters(), lr = lr_g, betas=(0.9, 0.999), weight_decay=4e-4)
+optimizer_Ds = torch.optim.Adam(Dis_s.parameters(), lr = lr_ds, betas=(0.9, 0.999), weight_decay=4e-4)
+
+scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size= 1, gamma=0.9)
+scheduler_Ds = torch.optim.lr_scheduler.StepLR(optimizer_Ds, step_size= 1, gamma=0.9)
+
+loss_fun = torch.nn.BCELoss()
+loss_mse = torch.nn.MSELoss()
+
+train_mse = []
+valid_mse = []
+
+for epoch in range(1000):
+    beg = time.time()
+    scheduler_G.step()
+    scheduler_Ds.step()
+
+    mse = []
+    for xx, real_imgs in train_loader:
+        xx, real_imgs = xx.to(device), real_imgs.to(device)
+        valid = Variable(torch.Tensor(xx.size(0), 1).fill_(1.0) - noise(xx.size(0),10),requires_grad=False).to(device)
+        fake = Variable(torch.Tensor(xx.size(0), 1).fill_(0.0) + noise(xx.size(0), 10),requires_grad=False).to(device)
+
+        optimizer_G.zero_grad()
+        gen_imgs = Gen(xx, output_length)
+
+        ## Generator
+        g_loss1 = loss_fun(Dis_s(gen_imgs)[0], valid)
+        g_loss = g_loss1  + coef*loss_mse(gen_imgs, real_imgs)
+        #- 0.0001*(loss_mse(dy1, gy1) + loss_mse(dy2, gy2) + loss_mse(dy3, gy3) + loss_mse(dy4, gy4)) \
+
         g_loss.backward()
-        g_optimizer.step()
-        
-        print(f"Epoch [{epoch+1}/{num_epochs}], D_loss: {d_loss.item():.4f}, G_loss: {g_loss.item():.4f} true: {torch.mean(torch.abs(1 - fake_images))}")
+        optimizer_G.step()
+
+        ## Discriminator
+        optimizer_Ds.zero_grad()
+        d_real, dy1, dy2, dy3, dy4 = Dis_s(real_imgs)
+        d_fake, gy1, gy2, gy3, gy4 = Dis_s(gen_imgs.detach())
+        real_loss_s = loss_fun(d_real, valid)
+        fake_loss_s = loss_fun(d_fake, fake)
+        ds_loss = real_loss_s + fake_loss_s
+
+        ds_loss.backward()
+        optimizer_Ds.step()
 
 
 
-# Generate and save an all-white image
-input_noise = torch.randn(1, 1, 1, 1)
-output_image = generator(input_noise)
-output_image = output_image.squeeze().detach().numpy() * 255.0
-output_image = output_image.astype('uint8')
+        mse.append(loss_mse(gen_imgs, real_imgs).item())
 
-print("All-white image saved.")
+        losses.append([round(g_loss1.item(),3), round(real_loss_s.item(), 3), round(fake_loss_s.item(), 3)])
+
+    train_mse.append(round(np.sqrt(np.mean(mse)),5))
+
+    mse = []
+    for xx, real_imgs in valid_loader:
+        xx, real_imgs = xx.to(device), real_imgs.to(device)
+        mse.append(loss_mse(Gen(xx, 6), real_imgs).item())
+
+    valid_mse.append(round(np.sqrt(np.mean(mse)),5))
+
+    if valid_mse[-1] < min_mse:
+        min_mse = valid_mse[-1]
+        torch.save(Gen, "Gen.pth")
+
+    end = time.time()
+    print(train_mse[-1], valid_mse[-1], round((end-beg)/60,3))
+    if (len(train_mse) > 70 and np.mean(valid_mse[-5:]) >= np.mean(valid_mse[-10:-5])):
+        break
+
+
+loss_mse = torch.nn.MSELoss()
+model = torch.load("Gen.pth")
+test_set = Dataset(test_indices, input_length, 30, 60, test_direc, True)
+test_loader = data.DataLoader(test_set, batch_size = batch_size, shuffle = False, num_workers = 12)
+test_rmse, preds, trues, loss_curve = test_epoch(test_loader, model, loss_mse)
+torch.save({"preds": preds,
+            "trues": trues,
+            "loss_curve": loss_curve},
+            "GAN.pt")
 
