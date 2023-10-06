@@ -543,7 +543,7 @@ class CGAN(FluidFlowPredictor):
                  pruning_size=1,
                  kernel_size=3,
                  dropout_rate=0,
-                 mse=1):
+                 mse=0.5):
         super().__init__()
 
         self.seeds_in_batch = seeds_in_batch
@@ -575,14 +575,18 @@ class CGAN(FluidFlowPredictor):
         self.discriminator_5 = torch.nn.Linear(512, 16)
         self.discriminator_6 = torch.nn.Linear(16, 1)
 
-        trans_required = 2
-        self.k = 6
-        self.generator_trans = nn.ModuleList([TransitionPruner(pruning_size,
-                                                     kernel=kernel_size,
-                                                     dropout=dropout_rate) for _ in range(trans_required)])
-        self.discriminator_trans = nn.ModuleList([TransitionPruner(pruning_size,
-                                                     kernel=kernel_size,
-                                                     dropout=dropout_rate) for _ in range(trans_required)])
+        self.generator_trans = TransitionPruner(
+                pruning_size,
+                kernel=kernel_size,
+                dropout=dropout_rate
+        )
+
+        self.discriminator_trans = TransitionPruner(
+                pruning_size,
+                kernel=kernel_size,
+                dropout=dropout_rate
+        ) 
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -594,26 +598,21 @@ class CGAN(FluidFlowPredictor):
                 m.bias.data.zero_()
 
     def single_pruning(self, seed, t):
-        decomp = index_decomp(t, self.k)
         running = -1
         seed = torch.unsqueeze(seed, dim=0)
 
         error = self.generator_base(seed)
-        for delta in decomp:
-            running += self.k ** delta
-            error = self.generator_trans[delta](error)
+        for _ in range(t):
+            error = self.generator_trans(error)
 
         return error
 
     def discriminator_single_pruning(self, seed, t):
-        decomp = index_decomp(t, self.k)
-        running = -1
         seed = torch.unsqueeze(seed, dim=0)
 
         error = self.discriminator_base(seed)
-        for delta in decomp:
-            running += self.k ** delta
-            error = self.discriminator_trans[delta](error)
+        for _ in range(t):
+            error = self.discriminator_trans(error)
 
         return error
 
@@ -636,7 +635,7 @@ class CGAN(FluidFlowPredictor):
     def train_epoch(self, max_seed_index, optimizers, epoch_num):
         stat_loss_curve = []
 
-        max_out_frame = epoch_num // 4 + 1
+        max_out_frame = epoch_num // 6 + 1
 
         permutation = torch.randperm(max_seed_index)
         step = 0
@@ -692,7 +691,7 @@ class CGAN(FluidFlowPredictor):
 
             step += 1
 
-            # make sure both receive some attention
+            # make sure both receive some attention even in cases of domination
             if (gloss_raw > dloss and mini_index % 8 != 0) or mini_index % 8 == 1:
                 optimizers[0].zero_grad()
                 gloss.backward()
