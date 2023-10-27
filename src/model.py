@@ -227,6 +227,7 @@ class ELSAN(FluidFlowPredictor):
     def __init__(self,
                  input_channels=16 * 2,
                  pruning_size=2,
+                 pruning_sub_net=np.array([4,4]),
                  noise_dim=0,
                  dropout_rate=0,
                  base=6,
@@ -245,6 +246,7 @@ class ELSAN(FluidFlowPredictor):
         self.ensemble_total_size = ensemble_total_size
         self.max_out_frame = max_out_frame
 
+        self.pruning_subnet = pruning_sub_net
         self.noise_shape = (noise_dim, 63, 63)
 
         # layers
@@ -295,6 +297,14 @@ class ELSAN(FluidFlowPredictor):
 
         error_s = torch.repeat_interleave(error.float(), self.ensemble_total_size, dim=0)
         clipping_error = self.clipping_error(error_e).view(self.ensemble_total_size, self.pruning_size, 63, 63)
+
+        # subnet pruning
+        bad_mask = torch.ones_like(error_s, dtype=torch.bool)
+        pivot = (bad_mask.shape[2:] - self.pruning_subnet) // 2
+        bad_mask[:, :, pivot[0]:pivot[0]+self.pruning_subnet[0], pivot[1]:pivot[1]+self.pruning_subnet[1]] = 0
+        error_s[bad_mask] = 0
+        clipping_error[bad_mask] = 0
+
         base = self.clipping(error_s + clipping_error)
         return base, error, clipping_error
 
@@ -324,7 +334,7 @@ class ELSAN(FluidFlowPredictor):
         permutation = torch.randperm(max_seed_index)
         step = 0
 
-        max_out_frame = epoch_num + 1 
+        max_out_frame = epoch_num // 4 + 1 
 
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
@@ -543,7 +553,7 @@ class CGAN(FluidFlowPredictor):
                  pruning_size=1,
                  kernel_size=3,
                  dropout_rate=0,
-                 mse=0.5):
+                 mse=0.35):
         super().__init__()
 
         self.seeds_in_batch = seeds_in_batch
@@ -636,6 +646,8 @@ class CGAN(FluidFlowPredictor):
         stat_loss_curve = []
 
         max_out_frame = epoch_num // 6 + 1
+        if epoch_num == 512:
+            self.mse /= 2
 
         permutation = torch.randperm(max_seed_index)
         step = 0

@@ -7,7 +7,7 @@ import sys
 
 from hyperparameters import *
 from model import ELSAN
-from penalty import DivergenceLoss, BigErrorLoss, BaseErrorLoss
+# from penalty import DivergenceLoss, BigErrorLoss, BaseErrorLoss
 from train import ClusteredDataset, ClippingDataset, train_orthonet_epoch, train_clipping_epoch, EnsembleDataset, \
     train_base_orthonet_epoch
 from util import get_device, write_parameters_into_model, save_parameters_from_model
@@ -43,13 +43,13 @@ if __name__ == '__main__':
     # clipping_loader = data.DataLoader(clipping_set, batch_size=C_BATCH_SIZE, shuffle=True, num_workers=0)
 
     loss_fun = torch.nn.MSELoss()
-    error_fun = BigErrorLoss()
-    base_error = BaseErrorLoss()
-    regularizer = DivergenceLoss(torch.nn.MSELoss())
+    #error_fun = BigErrorLoss()
+    #base_error = BaseErrorLoss()
+    #regularizer = DivergenceLoss(torch.nn.MSELoss())
 
-    optimizer1 = torch.optim.Adam(list(model.parameters1()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
-    optimizer2 = torch.optim.Adam(list(model.parameters2()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
-    optimizer3 = torch.optim.Adam(list(model.parameters3()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer1 = torch.optim.Adam(list(model.parameters1()), O_LEARNING_RATE * 2, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer2 = torch.optim.Adam(list(model.parameters2()), O_LEARNING_RATE / 2, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer3 = torch.optim.Adam(list(model.parameters3()), O_LEARNING_RATE * 2, betas=(0.9, 0.999), weight_decay=1e-3)
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
     train_emse = []
@@ -72,7 +72,7 @@ if __name__ == '__main__':
         # im = model(xx)
         # ran_sample(model, im, prev_error,
         #            frames[:, 60:62])
-        lc = model.train_epoch(128, [optimizer1, optimizer2, optimizer3], max_out_frame=i // 2 + 1)
+        lc = model.train_epoch(128, [optimizer1, optimizer2, optimizer3], epoch_num=i)
         train_emse.append(np.mean(lc))
         #
         # model.eval()

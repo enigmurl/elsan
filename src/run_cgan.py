@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     start = 0 if len(sys.argv) < 3 else int(sys.argv[2])
     best = 1e6
-    for i in range(start, O_MAX_EPOCH):
+    for i in range(start, 512):
         print("Epoch", i)
 
         start = time.time()
