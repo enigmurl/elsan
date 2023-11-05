@@ -85,6 +85,24 @@ class ClippingLayer(nn.Module):
 
         return self.output_layer(cat0)
 
+class DownPrune(nn.Module):
+    def __init__(self, in_channels, out_channels, dropout_rate):
+        super(DownPrune, self).__init__()
+
+        self.down = ClippingLayer(0, in_channels, out_channels)
+        
+    def forward(self, x):
+        return self.down(x)
+
+class UpPrune(nn.Module):
+    def __init__(self, in_channels, out_channels, dropout_rate):
+        super(UpPrune, self).__init__()
+
+        self.up = ClippingLayer(0, in_channels, out_channels)
+
+    def forward(self, x):
+        return self.up(x)
+
 
 class BasePruner(nn.Module):
     def __init__(self, input_channels, pruning_size, kernel_size, dropout_rate, time_range):
@@ -226,9 +244,6 @@ class FluidFlowPredictor(nn.Module):
 class ELSAN(FluidFlowPredictor):
     def __init__(self,
                  input_channels=16 * 2,
-                 pruning_size=2,
-                 pruning_sub_net=np.array([4,4]),
-                 noise_dim=0,
                  dropout_rate=0,
                  base=6,
                  seeds_in_batch=4,
@@ -240,91 +255,79 @@ class ELSAN(FluidFlowPredictor):
 
         # parameters
         self.k = base
-        self.pruning_size = pruning_size
         self.seeds_in_batch = seeds_in_batch
         self.ensembles_per_batch = ensembles_per_batch
         self.ensemble_total_size = ensemble_total_size
         self.max_out_frame = max_out_frame
-
-        self.pruning_subnet = pruning_sub_net
-        self.noise_shape = (noise_dim, 63, 63)
+        self.pruning_channels = 2
 
         # layers
-        self.base = BasePruner(input_channels, pruning_size,
+        self.encoder = DownPrune(in_channels=2, out_channels=self.pruning_channels, dropout_rate=dropout_rate)
+        self.decoder = UpPrune(in_channels=self.pruning_channels, out_channels=2, dropout_rate=dropout_rate)
+
+        self.base = BasePruner(input_channels, self.pruning_channels,
                                kernel_size=kernel_size,
                                dropout_rate=dropout_rate,
-                               time_range=1)  # time range not used
+                               time_range=1)  
 
-        self.base_error = BasePruner(input_channels, pruning_size,
+        self.base_error = BasePruner(input_channels, self.pruning_channels,
                                      kernel_size=kernel_size,
                                      dropout_rate=dropout_rate,
-                                     time_range=1)  # time range not used
-
-        self.clipping = ClippingLayer(noise_dim, pruning_size,
-                                      dropout_rate=dropout_rate, kernel=kernel_size)
-
-        self.clipping_error = ClippingLayer(noise_dim, pruning_size, out_size=pruning_size * self.ensemble_total_size,
-                                            dropout_rate=dropout_rate, kernel=kernel_size)
-
-        self.encoder = ClippingLayer(0, 2,
-                                     out_size=self.pruning_size, dropout_rate=dropout_rate, kernel=kernel_size)
+                                     time_range=1)  
 
         # trans_required = int(1 + np.floor(np.log(max_out_frame) / np.log(base)))
         trans_required = 2
-        self.trans = nn.ModuleList([TransitionPruner(pruning_size,
+        self.trans = nn.ModuleList([TransitionPruner(self.pruning_channels,
                                                      kernel=kernel_size,
                                                      dropout=dropout_rate) for _ in range(trans_required)])
 
-        self.trans_error = nn.ModuleList([TransitionPruner(pruning_size,
+        self.trans_clip = DownPrune(in_channels=self.pruning_channels, out_channels=self.pruning_channels, dropout_rate=dropout_rate)
+
+
+        self.trans_error = nn.ModuleList([TransitionPruner(self.pruning_channels,
                                                            kernel=kernel_size,
                                                            dropout=dropout_rate) for _ in range(trans_required)])
 
-    def run_full(self, seed, t):
-        # uses duplicate noise
-        res = [self.run_single(seed, i + 1)[0].to(device) for i in range(t)]
-        return torch.cat(res, dim=1)
+        self.trans_error_clip = DownPrune(in_channels=self.pruning_channels, out_channels=self.pruning_channels * self.ensemble_total_size, dropout_rate=dropout_rate)
+        
 
     def run_single(self, seed, t):
         decomp = index_decomp(t, self.k)
-        running = -1
+
         seed = torch.unsqueeze(seed, dim=0)
+
         error = self.base(seed)
         error_e = self.base_error(seed)
         for delta in decomp:
-            running += self.k ** delta
             error = self.trans[delta](error)
             error_e = self.trans_error[delta](error_e)
 
-        error_s = torch.repeat_interleave(error.float(), self.ensemble_total_size, dim=0)
-        clipping_error = self.clipping_error(error_e).view(self.ensemble_total_size, self.pruning_size, 63, 63)
+        error = self.trans_clip(error)
+        error = torch.repeat_interleave(error, self.ensemble_total_size, dim=0)
 
-        # subnet pruning
-        bad_mask = torch.ones_like(error_s, dtype=torch.bool)
-        pivot = (bad_mask.shape[2:] - self.pruning_subnet) // 2
-        bad_mask[:, :, pivot[0]:pivot[0]+self.pruning_subnet[0], pivot[1]:pivot[1]+self.pruning_subnet[1]] = 0
-        error_s[bad_mask] = 0
-        clipping_error[bad_mask] = 0
+        error_e = self.trans_error_clip(error_e) \
+            .view(self.ensemble_total_size, self.pruning_channels, *error.shape[2:])
 
-        base = self.clipping(error_s + clipping_error)
-        return base, error, clipping_error
+        final = self.decoder(error + error_e)
+        return final, error, error_e
 
     def auto_encode(self, y_true):
         pruning = self.encoder(y_true)
-        return self.clipping(pruning), pruning
+        return self.decoder(pruning), pruning
 
     def parameters1(self):
         for name, parameter in self.named_parameters():
-            if name.startswith("encoder.") or name.startswith("clipping."):
+            if name.startswith("encoder.") or name.startswith("decoder."):
                 yield parameter
 
     def parameters2(self):
         for name, parameter in self.named_parameters():
-            if name.startswith("base.") or name.startswith("trans."):
+            if name.startswith("base.") or name.startswith("trans.") or name.startswith("trans_clip."):
                 yield parameter
 
     def parameters3(self):
         for name, parameter in self.named_parameters():
-            if name.startswith("base_error.") or name.startswith("trans_error.") or name.startswith("clipping_error."):
+            if name.startswith("base_error.") or name.startswith("trans_error.") or name.startswith("trans_error_clip."):
                 yield parameter
 
     # override for max_out_frame provided in case of warmup period
@@ -342,8 +345,6 @@ class ELSAN(FluidFlowPredictor):
             real_max_index = min(self.max_out_frame, max_out_frame) if max_out_frame else self.max_out_frame
             jump_count = 1 + torch.randint(real_max_index, seed_indices.shape)
 
-            # noise = torch.normal(0, 1, size=(seed_indices.shape[0], self.ensemble_total_size, *self.noise_shape)) \
-            #     .to(device)
             lsa_row_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
                 .to(device)
             lsa_col_indices = torch.zeros((seed_indices.shape[0], self.ensemble_total_size), dtype=torch.long) \
@@ -361,9 +362,8 @@ class ELSAN(FluidFlowPredictor):
                     y_pred, error, error_e = self.run_single(frame_seeds[j], jump_count[j])
                     y_true = load_frame(seed_indices[j], list(range(self.ensemble_total_size)), jump_count[j] - 1)
                     res, pruning = self.auto_encode(y_true)
-                    pruning = pruning.view(self.ensemble_total_size, self.pruning_size, 63, 63)
+                    pruning = pruning.view(self.ensemble_total_size, self.pruning_channels, *pruning.shape[2:])
                     y_true_e = pruning - torch.mean(pruning, dim=0)
-                    error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     for k in range(self.ensemble_total_size):
                         rmse[k] = torch.sqrt(torch.mean(torch.square((error_e[k] - y_true_e)), dim=(1, 2, 3)))
 
@@ -377,6 +377,7 @@ class ELSAN(FluidFlowPredictor):
                     rr, cc = linear_sum_assignment(rmse.cpu().numpy())
                     lsa_row_indices2[j] = torch.tensor(rr).to(device)
                     lsa_col_indices2[j] = torch.tensor(cc).to(device)
+
             # using indices, actually do grad work through multiple sub-batches
             # space wise more efficient than naive method, but computationally 2x redundant
             # note that it may be the case that after a gradient update, the bipartite
@@ -398,149 +399,19 @@ class ELSAN(FluidFlowPredictor):
                     loss[0] += 10 * torch.mean(torch.abs(y_true - res)) / rows.shape[0]
                     # main loss
                     pruning_mean = torch.mean(pruning, dim=0)
-                    # print("Second", torch.sqrt(torch.mean(torch.square(pruning_mean - error))) * 2)
                     # error loss
-                    error_e = error_e.view(self.ensemble_total_size, self.pruning_size, 63, 63)
                     error_e = error_e[r]
                     loss[1] += torch.mean(torch.abs(pruning_mean - error)) * 10 / rows.shape[0]
-                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 + 5 * torch.abs(
-                        torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e)))) / rows.shape[0]
-                    # loss += (torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3  + torch.mean(torch.abs(error_e))) / rows.shape[0]
-                    # loss += torch.mean(torch.abs(torch.abs(pruning) - 1))
-                    # print("Fourth", torch.mean(torch.abs(torch.abs(pruning) - 1)))
-                    # print("Average Error", torch.mean(torch.abs(pruning - pruning_mean)), torch.mean(torch.abs(error_e)))
-                    # print("Third", torch.sqrt(torch.mean(torch.square((pruning - pruning_mean) - error_e))) * 3)
-                    # loss += torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0]
-                    # print("Fourth", torch.sqrt(torch.mean(torch.square(y_pred[r] - y_true))) / rows.shape[0])
-                    # loss += torch.sqrt(torch.mean(torch.square(y_pred - y_true))) / rows.shape[0]
+                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 \
+                            + torch.abs(torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e)))) / rows.shape[0]
                 stat_loss_curve.append(loss[step % len(loss)].item())
                 for optimizer in optimizers:
                     optimizer.zero_grad()
                 loss[step % len(loss)].backward()
                 optimizers[step % len(optimizers)].step()
 
+        print(loss)
         return stat_loss_curve
-
-# Generator
-class Generator(nn.Module):
-    def __init__(self, latent_dim=100):
-        super(Generator, self).__init__()
-        self.latent_dim = latent_dim
-        self.main = nn.Sequential(
-            nn.ConvTranspose2d(latent_dim, 64 * 4, 4, 1, 0),
-            nn.BatchNorm2d(64 * 4),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64 * 4, 64 * 2, 4, 2, 1),
-            nn.BatchNorm2d(64 * 2),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64 * 2, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64, 64, 4, 2, 1),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64, 2, 4, 2, 1),
-            nn.Tanh()
-        )
-
-    def forward(self, x):
-        noise = torch.randn((x.shape[0], 100, 1, 1)).to(device)
-        return self.main(noise)
-
-# Discriminator
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.main = nn.Sequential(
-            nn.Conv2d(2, 64, 4, 2, 0),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 64 * 2, 4, 2, 0),
-            nn.BatchNorm2d(64 * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 2, 64 * 4, 4, 2, 0),
-            nn.BatchNorm2d(64 * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 4, 64 * 4, 4, 1, 0),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64 * 4, 1, 3, 1, 0),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        return self.main(x)
-
-class GAN(FluidFlowPredictor):
-
-    def __init__(self):
-        super().__init__()
-
-        self.generator = Generator()
-        self.discriminator = Discriminator()
-
-        def weights_init(m):
-            classname = m.__class__.__name__
-            if classname.find('Conv') != -1:
-                nn.init.normal_(m.weight.data, 0.0, 0.02)
-            elif classname.find('BatchNorm') != -1:
-                nn.init.normal_(m.weight.data, 1.0, 0.02)
-                nn.init.constant_(m.bias.data, 0)
-
-        # self.apply(weights_init)
-
-        self.ensemble_total_size = 120
-        self.ensembles_in_batch = 10
-        self.seeds_in_batch = 12
-
-    def forward(self, xx):
-        return self.generator(xx)
-
-    def train_epoch(self, max_seed_index, goptimizer, doptimizer, epoch_num):
-        stat_loss_curve = []
-
-        permutation = torch.randperm(max_seed_index)
-        step = 0
-        criterion = nn.BCELoss()
-
-        for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
-            # seed_indices = torch.repeat_interleave(permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch], self.ensembles_in_batch)
-            # seeds = load_seed(seed_indices)
-
-            # trues = torch.stack([load_frame(seed, np.random.randint(0, self.ensemble_total_size), 0) for seed in seed_indices])
-            # trues = torch.ones_like(trues)
-        
-            trues = torch.ones((128, 2, 64, 64)).to('cuda')
-            preds = self.generator(trues)
-
-            fake = torch.ones(preds.shape[0]).to(device)
-            real = torch.zeros(trues.shape[0]).to(device)
-
-            disc = torch.flatten(self.discriminator(trues))
-            dloss = criterion(disc, real)
-
-            disc = torch.flatten(self.discriminator(preds))
-            dloss += criterion(disc, fake)
-
-            doptimizer.zero_grad()
-            dloss.backward()
-            doptimizer.step()
-
-            preds = self.generator(trues)
-            disc = torch.flatten(self.discriminator(preds))
-            gloss = torch.nn.functional.binary_cross_entropy(disc, real)
-
-            goptimizer.zero_grad()
-            gloss.backward()
-            goptimizer.step()
-
-            stat_loss_curve.append([gloss.item(), 
-                                    dloss.item(),
-                                    torch.mean(torch.abs(preds)).item(),
-                                    ])
-
-            print(f"Epoch [{epoch_num}], D_loss: {dloss.item():.4f}, G_loss: {gloss.item():.4f} true: {torch.mean(preds - 1)}")
-   
-        print(disc[0], disc[-1])
-        return stat_loss_curve
-
 
 class CGAN(FluidFlowPredictor):
     def __init__(self,
