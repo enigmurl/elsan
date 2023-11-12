@@ -396,14 +396,14 @@ class ELSAN(FluidFlowPredictor):
 
                     # auto_encoder_loss
                     res, pruning = self.auto_encode(y_true)
-                    loss[0] += 10 * torch.mean(torch.abs(y_true - res)) / rows.shape[0]
+                    loss[0] += torch.mean(torch.abs(y_true - res)) / rows.shape[0]
                     # main loss
                     pruning_mean = torch.mean(pruning, dim=0)
                     # error loss
                     error_e = error_e[r]
-                    loss[1] += torch.mean(torch.abs(pruning_mean - error)) * 10 / rows.shape[0]
-                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) * 10 \
-                            + torch.abs(torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e)))) / rows.shape[0]
+                    loss[1] += torch.mean(torch.abs(pruning_mean - error)) / rows.shape[0]
+                    loss[2] += (torch.mean(torch.abs((pruning - pruning_mean) - error_e)) \
+                            + 0.5 * torch.abs(torch.mean(torch.abs(pruning - pruning_mean)) - torch.mean(torch.abs(error_e)))) / rows.shape[0]
                 stat_loss_curve.append(loss[step % len(loss)].item())
                 for optimizer in optimizers:
                     optimizer.zero_grad()
@@ -587,7 +587,142 @@ class CGAN(FluidFlowPredictor):
         return stat_loss_curve
 
 
-class ScoreMatching(nn.Module):
-    def __init__(self):
+class CVAE(nn.Module):
+    def __init__(self,
+                 seeds_in_batch=16,
+                 ensembles_per_batch=8,
+                 ensemble_total_size=128,
+                 max_out_frame=32,
+                 input_channels=16 * 2,
+                 pruning_size=1,
+                 sigma=0.1,
+                 latent=1,
+                 kernel_size=3,
+                 dropout_rate=0):
         super().__init__()
 
+        self.latent = latent
+        self.sigma = sigma
+        self.seeds_in_batch = seeds_in_batch
+        self.ensembles_per_batch = ensembles_per_batch
+        self.ensemble_total_size=ensemble_total_size
+        self.max_out_frame = max_out_frame
+
+        self.encoder_base = BasePruner(input_channels, pruning_size,
+                               kernel_size=kernel_size,
+                               dropout_rate=dropout_rate,
+                               time_range=1)
+        self.decoder_base = BasePruner(input_channels, pruning_size,
+                               kernel_size=kernel_size,
+                               dropout_rate=dropout_rate,
+                               time_range=1)
+
+        self.encoder_clip = ClippingLayer(0, pruning_size + 2, out_size=2*latent,
+                                          dropout_rate=dropout_rate, kernel=kernel_size)
+        self.decoder_clip = ClippingLayer(0, pruning_size + latent, out_size=2,
+                                          dropout_rate=dropout_rate, kernel=kernel_size)
+
+        self.encoder_trans = TransitionPruner(
+                pruning_size,
+                kernel=kernel_size,
+                dropout=dropout_rate
+        )
+
+        self.decoder_trans = TransitionPruner(
+                pruning_size,
+                kernel=kernel_size,
+                dropout=dropout_rate
+        ) 
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, 0.002 / n)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def enc_single_pruning(self, seed, t):
+        running = -1
+        seed = torch.unsqueeze(seed, dim=0)
+
+        error = self.encoder_base(seed)
+        for _ in range(t):
+            error = self.encoder_trans(error)
+
+        return error
+
+    def dec_single_pruning(self, seed, t):
+        seed = torch.unsqueeze(seed, dim=0)
+
+        error = self.decoder_base(seed)
+        for _ in range(t):
+            error = self.decoder_trans(error)
+
+        return error
+
+    def run_single(self, seed, t):
+        # advanced pruning vector
+        pruning = self.dec_single_pruning(seed, t)
+        noise = torch.normal(0, 1, size=(1, self.latent, 63, 63)).to(device)
+        return self.decoder_clip(torch.cat((pruning, noise), dim=-3)), pruning
+
+    def train_epoch(self, max_seed_index, optimizer, epoch_num):
+        stat_loss_curve = []
+
+        max_out_frame = epoch_num // 6 + 1
+
+        permutation = torch.randperm(max_seed_index)
+        step = 0
+        for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
+            seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
+            seeds = load_seed(seed_indices)
+
+            pruning_starts = []
+            preds = []
+            trues = []
+
+            loss = 0
+            for j in range(seed_indices.shape[0]):
+                jump = 1 + np.random.randint(0, np.minimum(self.max_out_frame, max_out_frame))
+
+                e_pruning = self.enc_single_pruning(seeds[j], jump)
+                e_pruning = torch.repeat_interleave(e_pruning, self.ensembles_per_batch, dim=0)
+
+                d_pruning = self.dec_single_pruning(seeds[j], jump)
+                d_pruning = torch.repeat_interleave(d_pruning, self.ensembles_per_batch, dim=0)
+
+                indices = torch.randint(0, self.ensemble_total_size, (self.ensembles_per_batch,)).to(device)
+                true_vals = load_frame(seed_indices[j], indices, jump - 1)
+                
+                mu_sigma = self.encoder_clip(torch.cat((e_pruning, true_vals), dim=1))
+                mu = mu_sigma[:, :self.latent]
+                sigma = torch.abs(mu_sigma[:, self.latent:])
+
+                epsilon = torch.normal(0, 1, size=(self.ensembles_per_batch, self.latent, 63, 63)).to(device)
+                z = mu + epsilon * sigma
+
+                pred = self.decoder_clip(torch.cat((d_pruning, z), dim=1))
+
+                # log probability of recovering 
+                # since we're in a gaussian
+                # sigma * log(e^{-x^{2}} = -sigma * differences in square
+                loss += -self.sigma * torch.sqrt(torch.mean(torch.square(pred - true_vals)))
+                # equation 7
+                kl = 0.5 * (torch.sum(sigma) + torch.sum(mu * mu) - torch.numel(mu) - torch.sum(torch.log(sigma)))
+                # normalization constant
+                loss += -kl / torch.numel(mu)
+
+
+            # we want to maximize
+            loss = -loss
+            # optimizer
+            stat_loss_curve.append([loss.item()])
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        return stat_loss_curve

@@ -48,7 +48,7 @@ if __name__ == '__main__':
     #regularizer = DivergenceLoss(torch.nn.MSELoss())
 
     optimizer1 = torch.optim.Adam(list(model.parameters1()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
-    optimizer2 = torch.optim.Adam(list(model.parameters2()), O_LEARNING_RATE / 4, betas=(0.9, 0.999), weight_decay=1e-3)
+    optimizer2 = torch.optim.Adam(list(model.parameters2()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
     optimizer3 = torch.optim.Adam(list(model.parameters3()), O_LEARNING_RATE, betas=(0.9, 0.999), weight_decay=1e-3)
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
