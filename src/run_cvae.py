@@ -22,7 +22,7 @@ if __name__ == '__main__':
         write_parameters_into_model(model, 'cvae_state.pt')
         model = model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), 0.001, betas=(0.5, 0.999))
+    optimizer = torch.optim.Adam(model.parameters(), 0.0005, betas=(0.5, 0.999))
 
     train_emse = []
     valid_emse = []

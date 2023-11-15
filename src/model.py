@@ -291,6 +291,9 @@ class ELSAN(FluidFlowPredictor):
         self.trans_error_clip = DownPrune(in_channels=self.pruning_channels, out_channels=self.pruning_channels * self.ensemble_total_size, dropout_rate=dropout_rate)
         
 
+    def run_many(self, seed, t, batch):
+        return self.run_single(seed, t)[:batch]
+
     def run_single(self, seed, t):
         decomp = index_decomp(t, self.k)
 
@@ -507,6 +510,11 @@ class CGAN(FluidFlowPredictor):
             if name.startswith("discriminator"):
                 yield parameter
 
+    def run_many(self, seed, t, batch):
+        pruning = torch.tile(self.single_pruning(seed, t), (batch, 1, 1, 1))
+        noise = torch.normal(0, 1, size=(batch, *self.noise_shape)).to(device)
+        return self.generator(torch.cat((noise, pruning), dim=-3))
+
     def run_single(self, seed, t):
         # advanced pruning vector
         pruning = self.single_pruning(seed, t)
@@ -587,7 +595,7 @@ class CGAN(FluidFlowPredictor):
         return stat_loss_curve
 
 
-class CVAE(nn.Module):
+class CVAE(FluidFlowPredictor):
     def __init__(self,
                  seeds_in_batch=16,
                  ensembles_per_batch=8,
@@ -595,10 +603,10 @@ class CVAE(nn.Module):
                  max_out_frame=32,
                  input_channels=16 * 2,
                  pruning_size=1,
-                 sigma=0.1,
+                 sigma=1,
                  latent=1,
                  kernel_size=3,
-                 dropout_rate=0):
+                 dropout_rate=0.05):
         super().__init__()
 
         self.latent = latent
@@ -663,8 +671,12 @@ class CVAE(nn.Module):
 
         return error
 
+    def run_many(self, seed, t, batch):
+        pruning = torch.tile(self.dec_single_pruning(seed, t), (batch, 1, 1, 1))
+        noise = torch.normal(0, 1, size=(batch, self.latent, 63, 63)).to(device)
+        return self.decoder_clip(torch.cat((pruning, noise), dim=-3)), pruning
+
     def run_single(self, seed, t):
-        # advanced pruning vector
         pruning = self.dec_single_pruning(seed, t)
         noise = torch.normal(0, 1, size=(1, self.latent, 63, 63)).to(device)
         return self.decoder_clip(torch.cat((pruning, noise), dim=-3)), pruning
@@ -675,16 +687,12 @@ class CVAE(nn.Module):
         max_out_frame = epoch_num // 6 + 1
 
         permutation = torch.randperm(max_seed_index)
-        step = 0
         for mini_index in range(0, (max_seed_index + self.seeds_in_batch - 1) // self.seeds_in_batch):
             seed_indices = permutation[mini_index * self.seeds_in_batch: (mini_index + 1) * self.seeds_in_batch]
             seeds = load_seed(seed_indices)
 
-            pruning_starts = []
-            preds = []
-            trues = []
-
             loss = 0
+            kl = 0
             for j in range(seed_indices.shape[0]):
                 jump = 1 + np.random.randint(0, np.minimum(self.max_out_frame, max_out_frame))
 
@@ -701,6 +709,7 @@ class CVAE(nn.Module):
                 mu = mu_sigma[:, :self.latent]
                 sigma = torch.abs(mu_sigma[:, self.latent:])
 
+
                 epsilon = torch.normal(0, 1, size=(self.ensembles_per_batch, self.latent, 63, 63)).to(device)
                 z = mu + epsilon * sigma
 
@@ -709,17 +718,14 @@ class CVAE(nn.Module):
                 # log probability of recovering 
                 # since we're in a gaussian
                 # sigma * log(e^{-x^{2}} = -sigma * differences in square
-                loss += -self.sigma * torch.sqrt(torch.mean(torch.square(pred - true_vals)))
-                # equation 7
-                kl = 0.5 * (torch.sum(sigma) + torch.sum(mu * mu) - torch.numel(mu) - torch.sum(torch.log(sigma)))
-                # normalization constant
-                loss += -kl / torch.numel(mu)
+                loss += -self.sigma * torch.mean(torch.square(pred - true_vals))
+                kl += 0.5 / torch.numel(mu) * (torch.sum(sigma) + torch.sum(mu * mu) - torch.numel(mu) - torch.sum(torch.log(sigma)))
 
+            stat_loss_curve.append([loss.item(), kl.item()])
 
             # we want to maximize
-            loss = -loss
             # optimizer
-            stat_loss_curve.append([loss.item()])
+            loss = -(loss - kl)
 
             optimizer.zero_grad()
             loss.backward()
