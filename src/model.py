@@ -292,7 +292,7 @@ class ELSAN(FluidFlowPredictor):
         
 
     def run_many(self, seed, t, batch):
-        return self.run_single(seed, t)[:batch]
+        return self.run_single(seed, t).view(-1, 2, 63, 63)[:batch]
 
     def run_single(self, seed, t):
         decomp = index_decomp(t, self.k)
