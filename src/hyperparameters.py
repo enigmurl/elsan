@@ -56,6 +56,6 @@ C_TRAIN_DIREC = "../data/clipping/"
 C_TRAIN_INDICES = list(range(0, int(2 ** 15)))
 
 # metrics
-V_BATCH_SIZE = 16
+V_BATCH_SIZE = 128
 V_DIREC = "../data/validate/"
 V_INDICES = list(range(0, DATA_VALIDATION_ENSEMBLES))

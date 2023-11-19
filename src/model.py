@@ -674,7 +674,7 @@ class CVAE(FluidFlowPredictor):
     def run_many(self, seed, t, batch):
         pruning = torch.tile(self.dec_single_pruning(seed, t), (batch, 1, 1, 1))
         noise = torch.normal(0, 1, size=(batch, self.latent, 63, 63)).to(device)
-        return self.decoder_clip(torch.cat((pruning, noise), dim=-3)), pruning
+        return self.decoder_clip(torch.cat((pruning, noise), dim=-3))
 
     def run_single(self, seed, t):
         pruning = self.dec_single_pruning(seed, t)
