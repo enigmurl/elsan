@@ -13,7 +13,6 @@ COLOR_MAP = "3b1b_colormap"
 FRAME_DT = 1 / 30  # amount of seconds to progress one real frame
 SAMPLES = 1
 
-
 def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
     r = vx.shape[0]
     c = vx.shape[1]
@@ -21,7 +20,7 @@ def vector_frame(axis: Axes, vx: torch.tensor, vy: torch.tensor):
     return VectorField(lambda x, y: np.array([vx[int((y + 0.8) / 1.6 * r), int((x + 0.8) / 1.6 * c)],
                                               vy[int((y + 0.8) / 1.6 * r), int((x + 0.8) / 1.6 * c)]]),
                        axis,
-                       step_multiple=0.1,
+                       step_multiple=0.2,
                        length_func=lambda norm: 0.125 * sigmoid(norm)
                        )
 
@@ -61,10 +60,12 @@ class VisualizeSigma(Scene):
         return data, torch.flatten(frames, 1, 2)
 
     def model(self):
-        # model = ELSAN().to(device)
-        # write_parameters_into_model(model, 'model_state.pt')
-        model = CGAN().to(device)
-        write_parameters_into_model(model, 'cgan_state.pt')
+        model = ELSAN().to(device)
+        write_parameters_into_model(model, 'model_state.pt')
+        # model = CGAN().to(device)
+        # write_parameters_into_model(model, 'cgan_state.pt')
+        # model = CVAE().to(device)
+        # write_parameters_into_model(model, 'cvae_state.pt')
         return model.to(device)
 
     def construct(self) -> None:
@@ -100,18 +101,11 @@ class VisualizeSigma(Scene):
         xx = seed
         # error = base(xx)
 
-        TARG = 25
+        TARG = 30
         if render_count == 1:
             full = None
         else:
-            print(frames.shape)
-            # full, _ = model.run_single_true(xx, TARG, frames[:, 2*TARG: 2*TARG + 2], apply_second=True)
-            full, _ = model.run_single(xx, TARG)
-            print(full.shape)
-            full = full.view(-1, 2, 63, 63)
-            # full, _ = model.run_single_true(xx, TARG, torch.normal(0, 1, (32, 4, 63, 63)).to(device), torch.repeat_interleave(frames[:1, TARG * 2 : TARG * 2 + 2], 32, dim=0), apply_second=True)
-            print(full.shape)
-            # full = model.run_full(xx, 32, torch.normal(0, 1, (16, 4, 63, 63)).to(device))
+            full = model.run_many(xx, TARG, 32)
 
         def update(m, dt):
             nonlocal t, fnum, xx # , error
@@ -155,4 +149,4 @@ class VisualizeSigma(Scene):
 
         root.add_updater(update)
         self.add(root)
-        self.wait((64) / 2 * FRAME_DT)
+        self.wait((32) / 2 * FRAME_DT)

@@ -1,0 +1,372 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2022
+
+
+% ready for submission
+\usepackage{amsmath}
+\usepackage[preprint]{neurips_2022}
+\bibliographystyle{ieeetr}      % TODO, throwing an error for some reason
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2022}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2022}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2022}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\newcommand{\new}[1]{{\color{red} #1}}
+
+\title{OrthoNet: Towards Efficient Ensemble Forecasting of Chaotic Systems}
+
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+
+\author{%
+    Manu, Bhat \\
+    Department of Computer Science\\
+    UC San Diego\
+    La Jolla, CA 92093 \\
+    \texttt{mbhat@ucsd.edu} \\
+% examples of more authors
+% \And
+% Coauthor \\
+% Affiliation \\
+% Address \\
+% \texttt{email} \\
+% \AND
+% Coauthor \\
+% Affiliation \\
+% Address \\
+% \texttt{email} \\
+% \And
+% Coauthor \\
+% Affiliation \\
+% Address \\
+% \texttt{email} \\
+% \And
+% Coauthor \\
+% Affiliation \\
+% Address \\
+% \texttt{email} \\
+}
+
+
+\begin{document}
+
+
+    \maketitle
+
+
+    \begin{abstract}
+        Although traditional approaches to deep learning in chaotic systems focus on generating the most likely option given an initial state, this may be misleading as one sample simply does not contain enough information to encompass the entire system. On the other hand, an ensemble forecast composing of hundreds of simulations with varied initial conditions helps provide a more nuanced image, but is computationally intensive. We present an alternative option, OrthoNet, that outputs many possible options for a final state without full recomputation. In particular, instead of producing a single frame in time, OrthoNet acts on and returns an implicit encoding of a higher dimensional generalization of the confidence interval. From this, an auxiliary network can query the resultant set many times to produce possible final states in a computationally efficient manner. We use the case study of turbulent flow to prove out the model and provide a comparison with traditional deep learning approaches and numerical simulations. Although targeted towards chaotic systems, the architecture of the querying network could be applied to many types generative applications. Our work remains unfinished, but is publicly available on \href{https://github.com/enigmurl/tf-net-confidence-domain}{GitHub}.
+    \end{abstract}
+
+    \section{Introduction}
+
+    \paragraph{Problem Definition.}
+
+    In the context of chaotic systems, a small change to the input leads to large, unpredictable changes to the output. Whats worse is that in the real world, measurements of the initial state are bound to have some level of imprecision to them. This leads to the following problem: because we have an imperfect measurement and that error grows exponentially over prediction steps, it is fundamentally impossible to make a single, accurate prediction far into the future. One partial remedy especially prevalent in metereology is to generate an ensemble—or collection—of samples \cite{TyphoonEnsemblePredictionSystemDevelopedattheJapanMeteorologicalAgency}. From here, one can make probabilistic statements about the final outcome. However, this is typically done using a Monte-Carlo simulation. We present a more efficient method of ensemble forecasts that does not require a full re-simulation for each member.
+
+    For the purpose of the paper, we specifically focus on the problem of turbulent fluid simulations, but please keep in mind that the techniques we introduce aim to be environment-agnostic.
+
+    \paragraph{Problem Significance.}
+
+    Our work can theoretically can be applied to many real-world scenarios. Of course, turbulent flow and related phenomena are of extreme relevance. One could make ensemble forecasts of hurricanes and other weather phenomena efficiently. On a smaller scale, coast guard and search-and-rescue teams could simulate thousands of possible ending locations given a known initial position for a person lost at sea. Finally, we note that ensemble forecasting is relevant outside fluid dynamics and is pertinent to practically any chaotic system. One can simulate the three-body problem or the origins of the solar system.
+
+    \paragraph{Technical Challenges.}
+
+    One of the harder parts of tackling the problem is that we not only need to output a varied amount of final states, but that probability distribution of final states should match the ground truth. This is a challenge because deep learning models typically focus on a single input and output, rather than a full distribution.
+
+    Related to the first issue, the majority of datasets are sparse in the sense that for a given input in dataset, most other datapoints are relativly far from one another. This is good for most models since it gives a variety of inputs. However, it is not necessarily great for our situation since we would prefer a dataset which is dense and has many inputs that are close together.
+
+    \paragraph{State-of-the-Art.}
+    One state-of-the-art model capable of ensemble forecasting on weather predictions is the Typhoon Ensemble Prediction System (TEPS) \cite{TyphoonEnsemblePredictionSystemDevelopedattheJapanMeteorologicalAgency}. While impressive, it does require an expensive Monte-Carlo simulation.
+
+    Since our methodology can also predict some notion of most likely output, we also provide a purely deterministic state-of-the-arts. In particular, we compare our model to the original TF-net model \cite{Wang2020TF}. TF-net by itself can only predict a single outcome and is limited in that regard. However, it is still relevant in that we would like to ensure that our work is as accurate as possible.
+
+    \paragraph{Contributions.}
+    \begin{itemize}
+        \item Contribution 1: We propose an efficient solution to the ensemble forecasting problem
+        \item Contribution 2: We introduce a higher dimensional analog of the confidence interval
+    \end{itemize}
+
+
+    \section{Related Work}
+
+    \paragraph{Ensemble Forecasting} Ensemble forecasting, like that done in the TEPS \cite{TyphoonEnsemblePredictionSystemDevelopedattheJapanMeteorologicalAgency}. is generally performed via a Monte-Carlo simulation. Essentially, the initial conditions are slightly perturbed and a fully deterministic simulation is run using these various conditions. Some variations may introduce noise past the initial frame, but the basic idea remains. In the TEPS paper, the purpose of the ensemble is to actually use an ensemble mean instead of the probability distribution. Nevertheless, it provides a useful reference point.
+
+    \paragraph{Turbulent Flow Forecasting} Turbulent Flow forecasting is a tough problem by itself and has many approaches to solve it, including Large Eddy Simulations (LES) and Reynolds-averaged Navier Sokes (RANS). Turbulent Flow Net (TF-net) \cite{Wang2020TF} combines these techniques into a single network. Its other innovations include using temporal and spatial filtering, leading to an extremely performant model.
+
+    \section{Methodology}
+
+    \paragraph{Problem Setting.}
+    Formally, our general problem is given an initial state $s_0$ with an implicit amount of imprecision and $F(t, s_0)$ which is a function of time given initial state, we would like to predict the probability distribution $P$ such that $P(t,s)$ = the likelihood that $F(t,s_0) = s$.
+
+    In the context of our turbulent flow, this means that given a measurement of velocity field to a certain amount of significant figures, predict the likelihood of any final velocity field $t$ frames into the future. In practice, a single likelihood is not all too useful and we instead look for the probability on hyperdimensional ranges of the space.
+
+    \paragraph{Idea Summary.}
+    Our approach utilizes a higher dimensional analog of a confidence interval to approximate the distribution. Essentially, we create a confidence interval for $t + 1$, and then have a neural network transition that interval to $t + 2$, by which the process can be repeated. An auxilliary network can then create queries on this interval to produce sample data points. Crucially, the auxiliary network can create many points without requiring a full re-run of the transition network.
+
+    \paragraph{Confidence Domain}
+    If we consider the problem in one dimension, it is clear that by predicting a series of confidence intervals with varying confidence levels, we can create an approximation of the original distribution. Thus, one might be interested in seeing if there is a way to generalize the confidence interval to higher dimensional spaces.
+
+    Although some work has been done on multidimensional confidence intervals before, we believe these these generalizations are not adequate for this problem. \cite{MELOUN2011667} details the math of confidence ellipsoids, which are relevant when all variables are approximately normally distributed, but is not applicable in arbitrary distributions. Other works include \cite{korpela2017multivariate}, which suggests a hypercube in higher dimensional spaces. Crucially, a vector is said to be a associated with distribution even if it's not entirely contained in it, so long as the the number of dimensions it's outside of is bounded to some constant. This is useful in being able to summarize data effectively, but is not mathematically applicable to the problem in hand. Therefore, we look to suggest a different technique. Our works was inspired by \cite{FINK1996175} and their work on $\mathcal{O}$-connected sets, but we do note that our resultant set is not necessarily $\mathcal{O}$-connected over the basis vectors.
+
+    For a given probability distribution $P$ situated in $\mathbb{R}^n$, let the confidence domain $\mathcal{D}$ with confidence $\emph{c} \in [0,1]$ over a permutation $p_1, p_2, p_3, ... p_n$ be defined in the following manner.
+
+    First, let $A = \frac{c ^ {\frac{1}{n}}}{2}$ and $B = 1 - A$ which are vaguely representative of the p-value lower and upper bounds we will be using for each dimension. Then, consider just the dimension specified by the basis vector $\hat{e}_{p_1}$. To build the confidence domain, we start with a contour $D_1$ bounded by two hyperplanes.
+
+    $$D_1 = \{ x \in \mathbb{R}^n ~|~ A \le \mathbb{P}(P_{p_1} \le x_{p_1}) \le B\}$$
+
+    Where $\mathbb{P}(P_{p_i} \le x_{p_i})$ denotes the probability that the $p_i$th variable of the distribution $P$ is less than the $p_i$th component of the vector $x$. Thus far, $D_1$ is analogous to choosing a confidence interval for just the dimension $p_1$ with confidence $B-A$. The key step is that for dimensions past $p_1$, we use the probability \emph{given} the previous information. Then, $D_2$ is the following.
+
+    $$D_2 = \{ x \in \mathbb{R}^n ~|~ A \le \mathbb{P}(P_{p_2} \le x_{p_2} ~|~ P_{p_1} = x_{p_1}) \le B\}$$
+
+    From here, the running confidence domain is taken to the be the intersection of the previous confidence domain, and $D_2$. This process is repeated on the rest of the permutation. More specifically,
+
+    $$D_i = \{ x \in \mathbb{R}^n ~|~ A \le \mathbb{P}(P_{p_i} \le x_{p_i} ~|~ P_{p_1} = x_{p_1} \cap P_{p_2} = x_{p_2} \cap \cdots \cap  P_{p_{i-1}} = x_{p_{i-1}} ) \le B\}$$
+    $$\mathcal{D} = \bigcap_{i=1}^{n} D_i$$
+
+    Informally, at each step, we reduce the space across the $p_i$th dimension using the information of what we already snipped in previous spaces. In the end, $\mathcal{D}$ is a finitely enclosed volume, assuming $c < 1$ and basic characteristics we would expect about a probability distribution like $P$.
+
+    We believe this is a useful definition for a higher dimensional analog of a confidence interval for a couple of reasons. For one, since at each step we reduce the fraction of solutions by a factor of $B - A = c ^ \frac{1}{n}$, the resultant set contains a fraction of $c$ solutions, just like a confidence interval. Additionally, because all of the previous information is taken into consideration, it is more pruned than a pure hypercube or equivalents. As we will soon see, it can be also be used to simulate distributions as we earlier promised. On the cons side, it may not necessarily contain the globally minimum volume, but it should be noted that this is true of a confidence interval as well. Moreover, the fact that it requires an input permutation adds complexity. Finally, the multidimensional and antisymmetric nature makes it hard to represent directly. Regarding the last point, we aim to use a neural network to act as a support function and tackle this issue.
+
+    \begin{figure}
+        \centering
+        \caption{Rough Sketch of an example confidence domain}
+        \includegraphics[width=16cm]{confidence_domain.png}
+    \end{figure}
+
+    \newpage
+
+    \paragraph{Description.}
+    We use the idea of confidence domain to help design our model, but do note that it is never expressed explicitly. We detail the design of our model in the context of fluid flow.
+
+    First, we have a base network. It is given the previous 6 timestamps of a turbulent velocity field and is asked to produce a latent space encoding of a confidence domain of the next velocity field. Again, the confidence domain is not expressed explicitly. To be pedantic, its purpose is slightly different than as the theoretical one we proposed in the previous section. The latent space encoding should perhaps more accurately be thought of as the latent space of the probability distribution. Then, we have a transition network. It is given the latent space confidence domain of time $t$ and is asked for the latent space confidence domain of time $t + 1$. Finally, we have the query network. It is given the confidence domain as input, along with a query mask. The query mask says what variables are currently unfixed (in the context of fluid dynamics, this is what pixels are unknown in value), what variables are currently fixed and known in values, and which variable we want it to produce a distribution for. Then, given the confidence domain and the known values provided in the query mask, we ask it for various points on the cumulative distribution function of the target variable. For instance, in our implementation we asked it for the 1st percentile, 3rd percentile, 15th percentile, 50th percentile, 85th percentile, 97th percentile and 99th percentile of the target pixel. From here, we can approximate the distribution of the target variable and choose a random point. Now, that variable is fixed and we update the query mask, move onto the next variable, and run the network again. In a process we call grouping, rather than only acting on a single variable at a time, we generate the distributions of 64 pixels in a single query call. This means the query network needs to be called a total of $\frac{4096}{64}=64$ times to produce a sample.
+
+    To deal with the issue of grouping generating points inconsistent with the confidence domain, we plan to have a final "Clipping" layer whose goal is to send datapoints back to confidence domain hull. This has not been implemented yet, but is something we plan to do soon.
+
+    \paragraph{Implementation.} We implement the model through PyTorch using the TF-net \cite{Wang2020TF} codebase as a starting point. In addition, hyperparameters were more or less adapted from the original paper, with minor modifications to adapt to the new model. An important implementation detail which we found to boost performance is the introduction of a warm up phase. In essence, for the first few epochs, we only train 1 frame in advance. Then, the limit is raised to two. Later, it is raised to three and the process continues all the way to the limit of the the dataset.
+
+    For training, we use mini-batch gradient descent. We do not train on producing finalized outputs. Instead, through preprocessing of the data, we generate possible outputs for different query masks. This means that the query network does not need to be called 64 times during training, making the process converge more quickly.
+
+    \begin{figure}
+        \centering
+        \caption{Rough Sketch of Model Network}
+        \includegraphics[width=16cm]{model_diagram.png}
+    \end{figure}
+
+    \section{Experiments}
+    \paragraph{Datasets and Tools.}
+    Our dataset was created using the fluidsim python package \cite{fluiddyn, fluidfft, fluidsim}. We use a reynolds number of $3 \times 10^6$. 38,400 sequences of 18 frames of dimension 64x64x2 were created. A relatively large time step of 1.2s/frame was taken to induce purposeful chaos. This was done by simulating 6 frames of 0.2s, and then only keeping the last one. The dataset was created on an Apple M1 Pro and took around 48 hours for the creation and post processing. We trained the machine learning model on a GTX 1080ti and RTX 2080ti, with a total training time of approximately 6 hours and 130 epochs.
+
+    \paragraph{Problems.}
+    The biggest issue we're currently facing is that instead of truly generating different samples, the model just seems to be generating "wave-like" noise. With more epochs, this seems to gradually reduce but is still noticeable. To remedy this, we hypothesize that using a different permutation and grouping sequence could help. In theory, a perfect support model should be permutation invariant. That is, different permutations should not lead to better or worse models. In practice, the limited amount of data means that different permutations do perform more strongly compared to others. In addition, to deal with the inaccuracies that grouping introduces, we plan to have a final clipping model that takes in the raw output from the query model and aims to project the input back onto the true confidence domain hull.
+
+    \paragraph{Baselines.}
+    {
+        \begin{itemize}
+            \item TF-Net \cite{Wang2020TF}: This is a deterministic fluid simulation forecasting network that performs well in predicting turbulent flow.
+            \item TEPS \cite{TyphoonEnsemblePredictionSystemDevelopedattheJapanMeteorologicalAgency}: This is an ensemble forecasting software developed by the Japan Metereological Agency. We use it to compare the ensemble capabilities of our software vs theirs.
+            \item Fluidsim \cite{fluiddyn, fluidfft, fluidsim}: This is the numerical simulation software we used for generating the dataset. It is used as the ground truth.
+        \end{itemize}
+    }
+
+    \paragraph{Evaluation Metrics.}
+    We evaluate our model deterministicaly and probabilisticaly. To evaluate deterministicaly, we just take the square root of the mean squared error (RMSE) between the median predicted frame and the ground truth. Evaluating probabilisticaly is slightly more involved. We base our idea of evaluation off of bipartite maximal matching. Essentially, we look at the ground truth distribution and prediction distribution and take some $n$ samples from each. Then we find the matching where every sample in the ground truth distribution has a unique pair in the prediction set such that the sum of the RMSE between pairs is minimized. Another possible measurement schemes would be a divergence \cite{Joyce2011}, but was deemed too hard to implement with only so few samples.
+
+    \paragraph{Quantitative Results.}
+    Preliminary results of the deterministic and probablistic measures are shown in figures 3 and 4. We do not have comparisons with baselines yet. The problem we were facing is that the current dataset we're playing with is somewhat a toy dataset in that it only has a few "seeds" and a lot of minor variations of those seeds. This is not really an ideal dataset for TF-net or other traditional models, so a comparison doesn't really make sense. We will update this report as soon as we create the new dataset.
+
+    \begin{figure}
+        \centering
+        \caption{Deterministic RMSE}
+        \includegraphics[width=5cm]{deterministic_rmse.png}
+    \end{figure}
+
+    \begin{figure}
+        \centering
+        \caption{Probabilistic RMSE}
+        \includegraphics[width=5cm]{probabilistic_rmse.png}
+    \end{figure}
+
+    \paragraph{Qualitative Results.} We present the ensemble truth and predicted distributions at t = +1, t = +5, t = +7, t = +9, and t = +11. Figures are on the next page.
+
+    \newpage
+
+    \begin{figure}[H]
+        \centering
+        \caption{T=1}
+        \medskip
+        \small
+        Here are examples of the output at t=1. We have the top four rows as the ground truth, and the bottom four as the predicted. From there, they are listed as ux, uy, course vector field. Admiteddly, we are not sure the best way to display these results in an easy to digest manner
+        \includegraphics[width=16cm]{ensemble_t_1.png}
+
+        \centering
+        \caption{T=5}
+        \includegraphics[width=16cm]{ensemble_t_5.png}
+
+    \end{figure}
+
+    \newpage
+
+    \begin{figure}[H]
+        \centering
+        \caption{T=7}
+        \includegraphics[width=16cm]{ensemble_t_7.png}
+
+        \centering
+        \caption{T=9}
+        \includegraphics[width=16cm]{ensemble_t_9.png}
+    \end{figure}
+
+    \newpage
+    \begin{figure}[H]
+        \centering
+        \caption{T=11}
+        \includegraphics[width=16cm]{ensemble_t_11.png}
+    \end{figure}
+    \newpage
+
+    \paragraph{Ablative Study} For sake of this progress report, we did not perform an ablative studies. Since OrthoNet is not fully working, we believe that an ablative study would not really be applicable. A future ablative study will include trying different permutations and groupings.
+
+    \section{Conclusion and Discussion}
+
+    We introduce a general framework for efficient ensemble forecasting through the idea of confidence domains. Many chaotic systems are best analyzed in a probabilistic manner, which OrthoNet does well. We also emphasize that the querying model can be used outside of spatiotemporal situations. In particular, a practical use case could be generative networks where the distribution of the predicted outputs needs to closely match that of the real world set. Future work likely is necessary to perfect the training process and receive more accurate results, but our paper still serves as a basic starting point.
+
+    \paragraph{Bottlenecks.} Generating data for an ensemble network is significantly difficult as it requires a dense dataset with lots of entries, which is really only possible in laborotory or simulated setting. Another problem is that asking it to predict frames further than what it was trained on leads to undefined behavior. This seems somewhat fundamental to our approach and remains to be solved. Also, while we in theory do need to do less total computations, the fact that the query network is called 64 times means that unless the predicitons are far into the future, our network will actually be relatively slow.
+
+    \bibliography{references}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \section*{Checklist}
+
+
+%%% BEGIN INSTRUCTIONS %%%
+    The checklist follows the references.  Please
+    read the checklist guidelines carefully for information on how to answer these
+    questions.  For each question, change the default \answerTODO{} to \answerYes{},
+    \answerNo{}, or \answerNA{}.  You are strongly encouraged to include a {\bf
+    justification to your answer}, either by referencing the appropriate section of
+    your paper or providing a brief inline description.  For example:
+    \begin{itemize}
+        \item Did you include the license to the code and datasets? \answerYes{See Section~\ref{gen_inst}.}
+        \item Did you include the license to the code and datasets? \answerNo{The code and the data are proprietary.}
+        \item Did you include the license to the code and datasets? \answerNA{}
+    \end{itemize}
+    Please do not modify the questions and only use the provided macros for your
+    answers.  Note that the Checklist section does not count towards the page
+    limit.  In your paper, please delete this instructions block and only keep the
+    Checklist section heading above along with the questions/answers below.
+%%% END INSTRUCTIONS %%%
+
+
+    \begin{enumerate}
+
+
+        \item For all authors...
+        \begin{enumerate}
+            \item Do the main claims made in the abstract and introduction accurately reflect the paper's contributions and scope?
+            \answerTODO{}
+            \item Did you describe the limitations of your work?
+            \answerTODO{}
+            \item Did you discuss any potential negative societal impacts of your work?
+            \answerTODO{}
+            \item Have you read the ethics review guidelines and ensured that your paper conforms to them?
+            \answerTODO{}
+        \end{enumerate}
+
+
+        \item If you are including theoretical results...
+        \begin{enumerate}
+            \item Did you state the full set of assumptions of all theoretical results?
+            \answerTODO{}
+            \item Did you include complete proofs of all theoretical results?
+            \answerTODO{}
+        \end{enumerate}
+
+
+        \item If you ran experiments...
+        \begin{enumerate}
+            \item Did you include the code, data, and instructions needed to reproduce the main experimental results (either in the supplemental material or as a URL)?
+            \answerTODO{}
+            \item Did you specify all the training details (e.g., data splits, hyperparameters, how they were chosen)?
+            \answerTODO{}
+            \item Did you report error bars (e.g., with respect to the random seed after running experiments multiple times)?
+            \answerTODO{}
+            \item Did you include the total amount of compute and the type of resources used (e.g., type of GPUs, internal cluster, or cloud provider)?
+            \answerTODO{}
+        \end{enumerate}
+
+
+        \item If you are using existing assets (e.g., code, data, models) or curating/releasing new assets...
+        \begin{enumerate}
+            \item If your work uses existing assets, did you cite the creators?
+            \answerTODO{}
+            \item Did you mention the license of the assets?
+            \answerTODO{}
+            \item Did you include any new assets either in the supplemental material or as a URL?
+            \answerTODO{}
+            \item Did you discuss whether and how consent was obtained from people whose data you're using/curating?
+            \answerTODO{}
+            \item Did you discuss whether the data you are using/curating contains personally identifiable information or offensive content?
+            \answerTODO{}
+        \end{enumerate}
+
+
+        \item If you used crowdsourcing or conducted research with human subjects...
+        \begin{enumerate}
+            \item Did you include the full text of instructions given to participants and screenshots, if applicable?
+            \answerTODO{}
+            \item Did you describe any potential participant risks, with links to Institutional Review Board (IRB) approvals, if applicable?
+            \answerTODO{}
+            \item Did you include the estimated hourly wage paid to participants and the total amount spent on participant compensation?
+            \answerTODO{}
+        \end{enumerate}
+
+
+    \end{enumerate}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+    \appendix
+
+
+    \section{Appendix}
+
+
+    Optionally include extra information (complete proofs, additional experiments and plots) in the appendix.
+    This section will often be part of the supplemental material.
+
+
+\end{document}
