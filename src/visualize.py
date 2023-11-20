@@ -65,10 +65,10 @@ class VisualizeSigma(Scene):
     def model(self):
         # model = ELSAN()
         # write_parameters_into_model(model, 'model_state.pt')
-        # model = CGAN()
-        # write_parameters_into_model(model, 'cgan_state.pt')
-        model = CVAE()
-        write_parameters_into_model(model, 'cvae_state.pt')
+        model = CGAN()
+        write_parameters_into_model(model, 'cgan_state.pt')
+        # model = CVAE()
+        # write_parameters_into_model(model, 'cvae_state.pt')
         return model.to(device)
 
     def row(self, label, frames, X, use_diff=False):
@@ -106,28 +106,28 @@ class VisualizeSigma(Scene):
 
         seed, frames = self.load_rand()
 
-        ground_frames = frames[:, TARG * 2: TARG * 2 + 2]
-        cgan_frames = cgan.run_many(seed, TARG, 128)
-        cvae_frames = cvae.run_many(seed, TARG, 128)
-        elsan_frames = elsan.run_many(seed, TARG, 128)
-
-        row_1 = self.row("\\text{Truth}", ground_frames, X, use_diff=True)
-        row_2 = self.row("\\text{ELSAN}", elsan_frames, X, use_diff=True)
-        row_3 = self.row("\\text{CGAN}", cgan_frames, X, use_diff=True)
-        row_4 = self.row("\\text{CVAE}", cvae_frames, X, use_diff=True)
-
-        rows = VGroup(row_1, row_2, row_3, row_4)
-        rows.arrange(DOWN)
-
-        rect = Rectangle().set_width(10).set_height(10).set_fill(WHITE, opacity=1)
-        self.add(rect)
-
-        self.add(rows)
-        self.wait(0.05)
-        return
+        # ground_frames = frames[:, TARG * 2: TARG * 2 + 2]
+        # cgan_frames = cgan.run_many(seed, TARG, 128)
+        # cvae_frames = cvae.run_many(seed, TARG, 128)
+        # elsan_frames = elsan.run_many(seed, TARG, 128)
+        #
+        # row_1 = self.row("\\text{Truth}", ground_frames, X, use_diff=True)
+        # row_2 = self.row("\\text{ELSAN}", elsan_frames, X, use_diff=True)
+        # row_3 = self.row("\\text{CGAN}", cgan_frames, X, use_diff=True)
+        # row_4 = self.row("\\text{CVAE}", cvae_frames, X, use_diff=True)
+        #
+        # rows = VGroup(row_1, row_2, row_3, row_4)
+        # rows.arrange(DOWN)
+        #
+        # rect = Rectangle().set_width(10).set_height(10).set_fill(WHITE, opacity=1)
+        # self.add(rect)
+        #
+        # self.add(rows)
+        # self.wait(0.05)
+        # return
 
         root = VGroup()
-        model = self.eval()
+        model = self.model()
         xt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
         yt_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
         # t_frame = VGroup(*[Dot() for _ in range(SAMPLES)])
